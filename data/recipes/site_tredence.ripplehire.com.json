@@ -1,0 +1,89 @@
+{
+  "family": "site:tredence.ripplehire.com",
+  "steps": [
+    {
+      "step_name": "Consent",
+      "fields": [],
+      "advance": {
+        "selector": "button:has-text('I Agree')",
+        "label": "I Agree"
+      },
+      "advanced_when": {
+        "text_gone": "I Agree",
+        "text_appears": ""
+      },
+      "is_final": false,
+      "confirmation": ""
+    },
+    {
+      "step_name": "Personal Information",
+      "fields": [
+        {
+          "selector": "#salutation",
+          "kind": "select",
+          "question": "Title:",
+          "answer_key": "salutation"
+        },
+        {
+          "selector": "#firstName",
+          "kind": "text",
+          "question": "First name:",
+          "answer_key": "first_name"
+        },
+        {
+          "selector": "#middleName",
+          "kind": "text",
+          "question": "Middle name:",
+          "answer_key": "middle_name"
+        },
+        {
+          "selector": "#lastName",
+          "kind": "text",
+          "question": "Last name:",
+          "answer_key": "last_name"
+        },
+        {
+          "selector": "#emailAddr",
+          "kind": "text",
+          "question": "Email ID:",
+          "answer_key": "email"
+        },
+        {
+          "selector": "#day",
+          "kind": "select",
+          "question": "Date of birth:",
+          "answer_key": "dob_day"
+        },
+        {
+          "selector": "#month",
+          "kind": "select",
+          "question": "Date of birth:",
+          "answer_key": "dob_month"
+        },
+        {
+          "selector": "#year",
+          "kind": "select",
+          "question": "Date of birth:",
+          "answer_key": "dob_year"
+        },
+        {
+          "selector": "#phoneNo",
+          "kind": "text",
+          "question": "Contact number:",
+          "answer_key": "phone"
+        }
+      ],
+      "advance": {
+        "selector": "button:has-text('Continue')",
+        "label": "Continue"
+      },
+      "advanced_when": {
+        "text_gone": "You are applying for Associate Software Engineer",
+        "text_appears": ""
+      },
+      "is_final": false,
+      "confirmation": ""
+    }
+  ],
+  "saved_at": "2026-09-07 11:55:30"
+}

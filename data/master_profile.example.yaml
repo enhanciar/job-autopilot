@@ -1,0 +1,102 @@
+identity:
+  name: Ada Lovelace
+  first_name: Ada
+  last_name: Lovelace
+  email: ada@example.com
+  phone: +44 20 0000 0000
+  location: London, United Kingdom
+  country: United Kingdom
+  citizenship: United Kingdom
+  gender: ''
+  linkedin: https://www.linkedin.com/in/ada-example
+  github: https://github.com/ada-example
+  portfolio: https://ada.example.com
+  headline: Backend Engineer | Python, APIs, LLM tooling
+positioning:
+  target_titles:
+  - Backend Engineer
+  - Applied AI Engineer
+  - Software Engineer
+  summary: Backend engineer with three years shipping Python services and LLM-powered
+    features to production. Comfortable owning a problem end to end with stakeholders.
+skills:
+  languages:
+  - Python
+  - TypeScript
+  - SQL
+  backend_infra:
+  - FastAPI
+  - PostgreSQL
+  - Docker
+  - GCP
+  llm_agents:
+  - LangGraph
+  - RAG
+  - tool calling
+  delivery:
+  - Stakeholder discovery
+  - Rapid prototyping
+experience:
+- company: Example Corp
+  title: Software Engineer
+  location: London, UK (Hybrid)
+  start: 2023-06
+  end: null
+  current: true
+  bullets:
+  - Built a FastAPI service handling 2M requests/day
+  - Shipped an LLM assistant used by 300 internal users
+  stack:
+  - Python
+  - FastAPI
+  - GCP
+- company: Startup Ltd
+  title: Junior Developer
+  location: Remote
+  start: 2022-01
+  end: 2023-05
+  current: false
+  bullets:
+  - Maintained a React dashboard and its Node API
+  stack:
+  - TypeScript
+  - React
+education:
+- school: Example University
+  degree: BSc, Computer Science
+  start: 2018
+  end: 2021
+  note: First class
+projects:
+- name: Open-source CLI
+  summary: A small command-line tool for tidying CSV exports.
+preferences:
+  experience_years: 3
+  current_salary_lpa: 0
+  expected_salary_lpa: 0
+  min_salary_usd_remote: 80000
+  wttj_min_salary_eur: 70000
+  notice_period: 1 month
+  notice_period_days: 30
+  available_from: 1 month from offer
+  employment_types:
+  - full-time
+  work_modes:
+  - remote (any timezone)
+  - hybrid
+  - onsite with visa sponsorship
+  preferred_cities_india: []
+  relocation_cities:
+  - London
+  - Berlin
+  - Amsterdam
+  needs_visa_sponsorship_outside_india: false
+  authorized_to_work_us: false
+  willing_to_relocate: true
+  company_sizes:
+  - seed ok
+  - series A-C
+  - public
+  equity: open to equity as part of the package
+declarations: {}
+resume_base: ''

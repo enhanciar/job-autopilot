@@ -1,0 +1,22 @@
+{
+  "family": "site:jobs.keysight.com",
+  "steps": [
+    {
+      "step_name": "landing_page",
+      "fields": [],
+      "advance": {
+        "selector": "button:has-text('Skip to Main Content')",
+        "label": "Skip to Main Content"
+      },
+      "advanced_when": {
+        "text_gone": "Okay",
+        "text_appears": ""
+      },
+      "is_final": false,
+      "confirmation": ""
+    }
+  ],
+  "saved_at": "2026-09-07 12:11:41",
+  "stale": true,
+  "stale_reason": "step 1 would not advance (app 140)"
+}

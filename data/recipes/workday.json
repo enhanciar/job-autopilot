@@ -1,0 +1,34 @@
+{
+  "family": "workday",
+  "steps": [
+    {
+      "step_name": "Job Posting",
+      "fields": [],
+      "advance": {
+        "selector": "[data-automation-id='adventureButton']",
+        "label": "Apply"
+      },
+      "advanced_when": {
+        "text_gone": "Senior Software Engineer",
+        "text_appears": ""
+      },
+      "is_final": false,
+      "confirmation": ""
+    },
+    {
+      "step_name": "Job Details",
+      "fields": [],
+      "advance": {
+        "selector": "[data-automation-id='adventureButton']",
+        "label": "Apply"
+      },
+      "advanced_when": {
+        "text_gone": "Start Your Application",
+        "text_appears": ""
+      },
+      "is_final": false,
+      "confirmation": ""
+    }
+  ],
+  "saved_at": "2026-09-07 12:21:56"
+}

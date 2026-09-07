@@ -1,0 +1,22 @@
+{
+  "family": "site:evnek.zohorecruit.in",
+  "steps": [
+    {
+      "step_name": "Job Posting",
+      "fields": [],
+      "advance": {
+        "selector": "button:has-text('I'm interested')",
+        "label": "I'm interested"
+      },
+      "advanced_when": {
+        "text_gone": "Forward Deployed Engineer - LLM/Gen AI",
+        "text_appears": ""
+      },
+      "is_final": false,
+      "confirmation": ""
+    }
+  ],
+  "saved_at": "2026-09-07 12:13:16",
+  "stale": true,
+  "stale_reason": "step 1 would not advance (app 145)"
+}

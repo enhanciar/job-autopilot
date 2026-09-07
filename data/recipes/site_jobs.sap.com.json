@@ -1,0 +1,75 @@
+{
+  "family": "site:jobs.sap.com",
+  "steps": [
+    {
+      "step_name": "Create Job Alert",
+      "fields": [
+        {
+          "selector": "#j_idt137",
+          "kind": "text",
+          "question": "Select how often (in days) to receive an alert:",
+          "answer_key": "free_text"
+        }
+      ],
+      "advance": {
+        "selector": "button:has-text('Create Alert')",
+        "label": "Create Alert"
+      },
+      "advanced_when": {
+        "text_gone": "Select how often (in days) to receive an alert:",
+        "text_appears": ""
+      },
+      "is_final": false,
+      "confirmation": ""
+    },
+    {
+      "step_name": "Create Job Alert",
+      "fields": [
+        {
+          "selector": "#j_idt137",
+          "kind": "text",
+          "question": "Select how often (in days) to receive an alert:",
+          "answer_key": "free_text"
+        }
+      ],
+      "advance": {
+        "selector": "button:has-text('Create Alert')",
+        "label": "Create Alert"
+      },
+      "advanced_when": {
+        "text_gone": "Select how often (in days) to receive an alert:",
+        "text_appears": ""
+      },
+      "is_final": false,
+      "confirmation": ""
+    },
+    {
+      "step_name": "Sign In",
+      "fields": [
+        {
+          "selector": "#username",
+          "kind": "text",
+          "question": "Email Address:",
+          "answer_key": "email"
+        },
+        {
+          "selector": "#password",
+          "kind": "text",
+          "question": "Password:",
+          "answer_key": "free_text"
+        }
+      ],
+      "advance": {
+        "selector": "button:has-text('Sign In')",
+        "label": "Sign In"
+      },
+      "advanced_when": {
+        "text_gone": "Career Opportunities: Sign In",
+        "text_appears": ""
+      },
+      "is_final": false,
+      "confirmation": ""
+    }
+  ],
+  "saved_at": "2026-09-07 12:10:39"
+}

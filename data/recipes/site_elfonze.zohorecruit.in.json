@@ -1,0 +1,22 @@
+{
+  "family": "site:elfonze.zohorecruit.in",
+  "steps": [
+    {
+      "step_name": "Job Listing",
+      "fields": [],
+      "advance": {
+        "selector": "button:has-text('I'm interested')",
+        "label": "I'm interested"
+      },
+      "advanced_when": {
+        "text_gone": "I'm interested",
+        "text_appears": ""
+      },
+      "is_final": false,
+      "confirmation": ""
+    }
+  ],
+  "saved_at": "2026-09-07 12:06:53",
+  "stale": true,
+  "stale_reason": "step 1 would not advance (app 119)"
+}

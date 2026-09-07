@@ -1,0 +1,275 @@
+target_per_day: 100
+review_mode: true
+fit_threshold: 65
+auto_submit_min_score: 75
+llm:
+  default: claude-cli
+  routes:
+    score: claude-cli
+    tailor: claude-cli
+    outreach: claude-cli
+    classify: claude-cli
+    factcheck: claude-cli
+    profile_extract: claude-cli
+  models:
+    gemini: gemini-3.5-flash-lite
+    openrouter: anthropic/claude-sonnet-4.5
+    ollama: llama3.1:8b
+    claude-cli: claude-haiku-4-5-20251001
+  task_models:
+    gemini:
+      tailor: gemini-3.8-flash
+      outreach: gemini-3.8-flash
+    claude-cli:
+      tailor: claude-sonnet-5
+      outreach: claude-sonnet-5
+      profile_extract: claude-sonnet-5
+humanize:
+  action_delay_s:
+  - 2
+  - 8
+  between_items_s:
+  - 20
+  - 90
+  idle_pause_chance: 0.08
+  idle_pause_s:
+  - 15
+  - 60
+  typing_cps:
+  - 6
+  - 14
+  business_hours:
+    start: 9
+    end: 19
+caps:
+  linkedin:
+    easy_apply: 15
+    connects: 40
+    dms: 20
+    searches: 100
+  wellfound:
+    applies: 20
+    searches: 20
+  ycombinator:
+    applies: 20
+    searches: 20
+  naukri:
+    applies: 30
+    searches: 20
+  cutshort:
+    applies: 20
+    searches: 20
+  instahyre:
+    applies: 20
+    searches: 20
+  x:
+    dms: 10
+    replies: 10
+  email:
+    cold: 40
+  ats:
+    applies: 1000
+  jobright:
+    searches: 20
+  hirist:
+    applies: 25
+    searches: 20
+  peerlist:
+    applies: 15
+    searches: 20
+filters:
+  titles_include:
+  - forward deployed
+  - applied ai
+  - ai engineer
+  - llm
+  - agent
+  - solutions engineer
+  - founding engineer
+  - full stack
+  - full-stack
+  - backend
+  - software engineer
+  - machine learning engineer
+  - genai
+  - generative ai
+  titles_exclude:
+  - staff
+  - principal
+  - director
+  - 'vp '
+  - head of
+  - intern
+  - manager
+  - clearance
+  remote_ok_regions:
+  - worldwide
+  - anywhere
+  - global
+  - india
+  - apac
+  - asia
+  - emea
+  - utc
+  - ist
+  - remote
+  sponsor_countries:
+  - united kingdom
+  - uk
+  - germany
+  - netherlands
+  - japan
+  - singapore
+  - uae
+  - dubai
+  - canada
+  - australia
+  - ireland
+  - sweden
+  - portugal
+  - spain
+  - london
+  - manchester
+  - berlin
+  - munich
+  - hamburg
+  - amsterdam
+  - rotterdam
+  - eindhoven
+  - tokyo
+  - osaka
+  - dubai
+  - abu dhabi
+  - toronto
+  - vancouver
+  - montreal
+  - sydney
+  - melbourne
+  - dublin
+  - stockholm
+  - lisbon
+  - madrid
+  - barcelona
+  - paris
+  - zurich
+  - copenhagen
+  - oslo
+  - helsinki
+  - warsaw
+  - prague
+  - tallinn
+seed_companies:
+  greenhouse:
+  - anthropic
+  - openai
+  - scaleai
+  - sierra
+  - decagon
+  - harvey
+  - cohere
+  - perplexityai
+  - vercel
+  - stripe
+  - figma
+  - notion
+  - databricks
+  - airtable
+  - retool
+  - ramp
+  - brex
+  - mercury
+  - deel
+  - remotecom
+  - gitlab
+  - hashicorp
+  - cloudflare
+  - elastic
+  - mongodb
+  - twilio
+  - duolingo
+  - coinbase
+  - robinhood
+  - affirm
+  - plaid
+  - rippling
+  - gusto
+  - lattice
+  - webflow
+  - zapier
+  - automattic
+  - doordash
+  - instacart
+  - lyft
+  - pinterest
+  - reddit
+  - discord
+  - dropbox
+  - asana
+  - calendly
+  - loom
+  - miro
+  - canva
+  lever:
+  - palantir
+  - mistral
+  - replit
+  - cursor
+  - anysphere
+  - glean
+  - hebbia
+  - writer
+  - jasper
+  - runwayml
+  - elevenlabs
+  - synthesia
+  - character
+  - adept
+  - inflection
+  - together
+  - anyscale
+  - modal
+  - baseten
+  - weights-biases
+  - pinecone
+  - weaviate
+  - chroma
+  - langchain
+  - llamaindex
+  - unstructured
+  - humanloop
+  - braintrust
+  - arize
+  - galileo
+  ashby:
+  - anthropic
+  - openai
+  - cursor
+  - linear
+  - ramp
+  - vanta
+  - posthog
+  - supabase
+  - resend
+  - clerk
+  - neon
+  - railway
+  - render
+  - fly
+  - temporal
+  - dagster
+  - prefect
+  - airbyte
+  - dbt-labs
+  - hex
+  - omni
+  - mode
+  - sigma
+  - census
+  - hightouch
+  - rudderstack
+  - segment
+  - mixpanel
+  - amplitude
+  - heap
+schedule:
+  enabled: false

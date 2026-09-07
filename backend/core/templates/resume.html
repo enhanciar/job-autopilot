@@ -1,0 +1,45 @@
+<!doctype html><html><head><meta charset="utf-8"><title>{{ p.identity.name }} - Resume</title>
+<style>
+ @page { size: A4; margin: 14mm 15mm; }
+ body { font-family: "Helvetica Neue", Arial, sans-serif; font-size: 9.9pt; color:#111; line-height:1.32; }
+ h1 { font-size: 20pt; margin:0; letter-spacing:.3px; }
+ .sub { font-size: 10.5pt; color:#333; margin:2px 0 4px; }
+ .contact { font-size: 9.2pt; color:#444; }
+ .contact a { color:#444; text-decoration:none; }
+ h2 { font-size: 10.5pt; text-transform:uppercase; letter-spacing:1px; border-bottom:1px solid #999; padding-bottom:2px; margin:12px 0 5px; }
+ .row { display:flex; justify-content:space-between; align-items:baseline; }
+ .role { font-weight:600; }
+ .meta { color:#555; font-size:9.3pt; }
+ ul { margin:3px 0 4px 16px; padding:0; }
+ li { margin:1.5px 0; }
+ .skills div { margin:1px 0; }
+ .skills b { display:inline-block; min-width:118px; font-weight:600; }
+ p { margin:3px 0; }
+</style></head><body>
+<h1>{{ p.identity.name }}</h1>
+<div class="sub">{{ headline }}</div>
+<div class="contact">{{ p.identity.location }} &nbsp;|&nbsp; {{ p.identity.email }} &nbsp;|&nbsp; {{ p.identity.phone }} &nbsp;|&nbsp;
+ {% if p.identity.linkedin %}<a href="{{ p.identity.linkedin }}">{{ p.identity.linkedin | replace("https://", "") | replace("http://", "") | replace("www.", "") | trim("/") }}</a>{% endif %}{% if p.identity.github %} &nbsp;|&nbsp; <a href="{{ p.identity.github }}">{{ p.identity.github | replace("https://", "") | replace("http://", "") | trim("/") }}</a>{% endif %}{% if p.identity.portfolio %} &nbsp;|&nbsp; <a href="{{ p.identity.portfolio }}">{{ p.identity.portfolio | replace("https://", "") | replace("http://", "") | trim("/") }}</a>{% endif %}</div>
+
+<h2>Summary</h2>
+<p>{{ summary }}</p>
+
+<h2>Skills</h2>
+<div class="skills">
+{% for label, items in skills %}<div><b>{{ label }}</b> {{ items | join(", ") }}</div>{% endfor %}
+</div>
+
+<h2>Experience</h2>
+{% for e in experience %}
+<div class="row"><span class="role">{{ e.title }} · {{ e.company }}</span><span class="meta">{{ e.period }}</span></div>
+<div class="meta">{{ e.location }}</div>
+<ul>{% for b in e.bullets %}<li>{{ b }}</li>{% endfor %}</ul>
+{% endfor %}
+{% if earlier %}<div class="meta">Earlier: {{ earlier | join("; ") }}</div>{% endif %}
+
+{% if projects %}<h2>Projects</h2>
+<ul>{% for pr in projects %}<li><b>{{ pr.name }}</b> — {{ pr.summary }}</li>{% endfor %}</ul>{% endif %}
+
+<h2>Education</h2>
+{% for ed in p.education %}<div class="row"><span>{{ ed.degree }}, {{ ed.school }}</span><span class="meta">{{ ed.start }}{% if ed.end %}–{{ ed.end }}{% endif %}{% if ed.note %} · {{ ed.note }}{% endif %}</span></div>{% endfor %}
+</body></html>

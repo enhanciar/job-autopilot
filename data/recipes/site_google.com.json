@@ -1,0 +1,22 @@
+{
+  "family": "site:google.com",
+  "steps": [
+    {
+      "step_name": "Job Listing Page",
+      "fields": [],
+      "advance": {
+        "selector": "",
+        "label": ""
+      },
+      "advanced_when": {
+        "text_gone": "",
+        "text_appears": ""
+      },
+      "is_final": false,
+      "confirmation": ""
+    }
+  ],
+  "saved_at": "2026-09-07 12:17:58",
+  "stale": true,
+  "stale_reason": "step 1 would not advance (app 170)"
+}

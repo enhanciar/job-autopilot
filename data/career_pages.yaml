@@ -1,0 +1,39 @@
+# Employer career pages worth applying on directly (found while running the pipeline). Add freely; the ATS worker can apply
+# on any of these because they are plain Ashby / Greenhouse / Lever forms behind the page.
+- company: Cursor (Anysphere)
+  url: https://cursor.com/careers
+  ats: ashby
+  note: postings seen via aggregators had expired; check the page directly for current openings
+- company: OpenAI
+  url: https://openai.com/careers/search/
+  ats: ashby
+  note: applied to 5 roles; site has an application cap per period ("limits for applications")
+- company: Ramp
+  url: https://ramp.com/careers
+  ats: ashby
+  note: 12 applications submitted 2026-09-06
+- company: GitLab
+  url: https://about.gitlab.com/jobs/all-jobs/
+  ats: greenhouse
+  note: 7 applications submitted 2026-09-06
+- company: Anthropic
+  url: https://www.anthropic.com/jobs
+  ats: greenhouse
+  note: requires an emailed security code to submit; do by hand
+- company: Databricks
+  url: https://www.databricks.com/company/careers/open-positions
+  ats: greenhouse
+- company: Cohere
+  url: https://jobs.ashbyhq.com/cohere
+  ats: ashby
+  note: application cap reached today
+- company: ClickUp
+  url: https://jobs.ashbyhq.com/clickup
+  ats: ashby
+- company: JetBrains
+  url: https://www.jetbrains.com/careers/jobs/
+  ats: greenhouse
+- company: Microsoft
+  url: https://jobs.careers.microsoft.com/global/en/search
+  ats: microsoft-portal
+  note: needs the Microsoft login in the automation window

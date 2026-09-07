@@ -1,0 +1,22 @@
+{
+  "family": "site:ibegin.tcsapps.com",
+  "steps": [
+    {
+      "step_name": "Login / Entry",
+      "fields": [],
+      "advance": {
+        "selector": "button:has-text('Login / Register with Us')",
+        "label": "Login / Register with Us"
+      },
+      "advanced_when": {
+        "text_gone": "Search Jobs",
+        "text_appears": ""
+      },
+      "is_final": false,
+      "confirmation": ""
+    }
+  ],
+  "saved_at": "2026-09-07 12:17:08",
+  "stale": true,
+  "stale_reason": "step 1 would not advance (app 169)"
+}

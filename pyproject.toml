@@ -1,0 +1,28 @@
+[project]
+name = "job-autopilot"
+version = "0.1.0"
+description = "Job search automation: discover, score, tailor, apply, outreach, track"
+requires-python = ">=3.13,<3.14"
+dependencies = [
+  "fastapi>=0.115",
+  "uvicorn[standard]>=0.30",
+  "sqlalchemy>=2.0",
+  "pydantic>=2.8",
+  "pydantic-settings>=2.4",
+  "httpx>=0.27",
+  "playwright>=1.47",
+  "python-dotenv>=1.0",
+  "pyyaml>=6.0",
+  "feedparser>=6.0",
+  "jinja2>=3.1",
+  "beautifulsoup4>=4.12",
+  "lxml>=5.0",
+  "python-multipart>=0.0.9",
+  "google-api-python-client>=2.0",
+  "google-auth-oauthlib>=1.2",
+  "pypdf>=6.0",
+  "pytest>=8.0",
+]
+
+[tool.uv]
+package = false
