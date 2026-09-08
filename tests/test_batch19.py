@@ -350,3 +350,25 @@ def test_answering_questions_never_invalidates_prepared_documents(monkeypatch):
                                                               "store": "capabilities", "capability": "terraform", "yes": True, "skip": False})
     questions.apply_answer(qid, questions.interpret({"text": "x"}, "yes"))
     assert profile.fingerprint() == before
+
+
+def test_reposted_role_is_not_prepared_twice(monkeypatch):
+    """Boards repost the same vacancy under a new URL; two applications to one role reads as careless."""
+    from backend.app.models import Job, Application
+    from backend.core import pipeline, llm, resume
+    with session() as db:
+        for suffix in ("", "-1"):
+            db.add(Job(dedupe_key=f"k{suffix}", source="weworkremotely", company="Huzzle", title="Full-Stack Developer (Python, React, AI)",
+                       url=f"https://w.example/huzzle-full-stack{suffix}", location="Anywhere", country="Remote (worldwide)",
+                       description="d" * 400, eligible=True, fit_score=90, status="scored"))
+        ids = [j.id for j in db.query(Job).order_by(Job.id).all()]
+    tailored = {"headline": "h", "summary": "s", "skills_order": [], "experience_bullets": {}, "cover_note": "c", "why_company": "w"}
+    monkeypatch.setattr(llm, "complete_json", lambda task, *a, **k: tailored if task == "tailor" else {"ok": True, "violations": []})
+    monkeypatch.setattr(resume, "render_pdf", lambda *a, **k: "data/artifacts/x.pdf")
+    ctx = runner.RunContext("pipeline", "test")
+    assert pipeline.tailor(ctx, ids[0]) is not None
+    assert pipeline.tailor(ctx, ids[1]) is None                     # the repost is skipped, not prepared
+    with session() as db:
+        assert db.query(Application).count() == 1
+        assert db.get(Job, ids[1]).status == "skipped"
+        assert "already prepared" in db.get(Job, ids[1]).eligibility_reason

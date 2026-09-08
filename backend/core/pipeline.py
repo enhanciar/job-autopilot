@@ -140,12 +140,26 @@ def tailor(ctx, job_id: int, provider: str | None = None, replace_existing: bool
             exists = True
         else:
             exists = False
+        # Boards repost the same role under a new URL, so a second job row is not a second vacancy. Applying twice to the
+        # same title at the same company reads as careless, so the duplicate is skipped rather than prepared.
+        twin = None
+        if not original:
+            from backend.core.normalize import norm
+            for other in db.query(Application).join(Job).filter(Job.company == j.company, Application.job_id != job_id).all():
+                if norm(other.job.title) == norm(j.title):
+                    twin = other.job_id; break
         if original and replace_existing and original.status not in ("pending_review", "needs_human", "failed", "rejected_by_user"):
             raise ValueError("Unapprove the application before regenerating documents; submitted applications cannot be regenerated")
         previous = (original.id, original.status, original.updated_at) if original else None
         hints, jt, company, title, ats, source = j.fit_reasons or "", _job_text(j), j.company, j.title, j.ats, j.source
     if exists:
         ctx.log("info", f"already has application for job {job_id}"); return None
+    if twin:
+        with session() as db:
+            job = db.get(Job, job_id)
+            job.status = "skipped"; job.eligibility_reason = f"same role already prepared as job {twin} (reposted under a second URL)"
+        ctx.log("info", f"skipped duplicate posting: {company} — {title} (already prepared as job {twin})")
+        ctx.bump("duplicate"); return None
     prompt = f"PROFILE (ground truth):\n{prof_text}\n\nSCORING HINTS: {hints}\n\nJOB:\n{jt}"
     from backend.core.validation import TailoredResume, FactCheck
     out = TailoredResume.model_validate(llm.complete_json("tailor", prompt, TAILOR_SYSTEM, provider=provider)).validate_profile(profile.load())

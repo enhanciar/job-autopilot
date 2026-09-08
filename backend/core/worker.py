@@ -12,6 +12,17 @@ HEARTBEAT = config.DATA / "worker.heartbeat.json"
 HEARTBEAT_STALE_S = 30
 
 
+_current_run = None
+
+
+def _pulse():
+    """A long stage (scoring a few hundred jobs) must not look like a hung worker, so the heartbeat is written on a timer
+    rather than only between runs."""
+    while True:
+        heartbeat(_current_run)
+        time.sleep(10)
+
+
 def heartbeat(run_id=None):
     """Liveness record for the dashboard: written every loop, atomically, so a stale file means a dead worker."""
     import os, tempfile
@@ -93,7 +104,9 @@ def run_one():
         if not row: return False
         row.status = 'running'; row.started_at = datetime.utcnow()
         rid, spec = row.id, row.spec
+    global _current_run
     ctx = RunContext.resume(rid)
+    _current_run = rid
     heartbeat(rid)
     try:
         dispatch(ctx, spec); ctx.finish()
@@ -104,6 +117,7 @@ def run_one():
         ctx.log('error', f'{type(e).__name__}: {e}', data={'trace': traceback.format_exc()[-2000:]})
         ctx.finish(str(e))
     finally:
+        _current_run = None
         heartbeat(None)
     return True
 
@@ -114,10 +128,10 @@ def main():
         try: fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError: raise SystemExit('A worker already owns this queue')
         recover()
+        import threading
+        threading.Thread(target=_pulse, daemon=True, name="heartbeat").start()
         from backend.core.scheduler import tick
         while True:
-            heartbeat(None)
-            tick()
             if not run_one(): time.sleep(1)
 
 if __name__ == '__main__': main()
