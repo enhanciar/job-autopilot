@@ -110,6 +110,43 @@ def generate_answer(question: str, job_text: str, cover_note: str | None) -> str
     return answer
 
 
+DIAL_CODE_RX = re.compile(r"\+\d{1,4}")
+PHONE_LABEL_RX = re.compile(r"phone|mobile|contact number|telephone", re.I)
+
+
+def has_country_code_control(page, el, scope=None) -> bool:
+    """True when the form already asks for the dialling code separately (a country select, a flag picker, an
+    intl-tel-input widget). Typing '+91 97113 24698' next to a box that already says +91 gives the employer a number
+    they cannot ring."""
+    try:
+        near = el.evaluate(r"""e => {
+            let n = e;
+            for (let i = 0; i < 4 && n; i++) {
+                n = n.parentElement;
+                if (!n) break;
+                if (n.querySelector('.iti__flag, [class*="iti__"], [class*="country-code"], [class*="countryCode"], [class*="flag"]')) return 'widget';
+                for (const c of n.querySelectorAll('select, button, [role="combobox"], [role="button"]')) {
+                    if (c === e) continue;
+                    const t = (c.innerText || c.value || '') + ' ' + (c.getAttribute('aria-label') || '');
+                    if (/\+\d{1,4}/.test(t) || /country/i.test(t)) return 'sibling';
+                }
+            }
+            return '';
+        }""")
+        return bool(near)
+    except Exception:
+        return False
+
+
+def phone_value(page, el, scope=None) -> str:
+    """The number to type: local digits when the form has its own country-code control, otherwise the full number."""
+    full = profile.get("identity.phone") or ""
+    if not has_country_code_control(page, el, scope):
+        return full
+    local = profile.get("identity.phone_local") or re.sub(r"[^0-9]", "", full)[-10:]
+    return local
+
+
 SALARY_RX = re.compile(r"salary|compensation|\bctc\b|\bpay\b|remuneration|package", re.I)
 
 
@@ -177,6 +214,8 @@ def fill_text_inputs(page, job_text: str, cover_note: str | None, log, scope=Non
             if ans is None:
                 if el.get_attribute("required") is not None or el.get_attribute("aria-required") == "true": unanswered.append(label)
                 continue
+            if PHONE_LABEL_RX.search(label) or (el.get_attribute("type") or "") == "tel":
+                ans = phone_value(page, el, root)
             if (el.get_attribute("type") or "") == "number" or (el.get_attribute("inputmode") or "") in ("numeric", "decimal"):
                 ans = numeric_answer(label, ans)
                 if ans is None:
@@ -332,12 +371,10 @@ def refill_phone(page, log, scope=None) -> int:
     root = scope or page
     n = 0
     try:
-        digits = re.sub(r"[^\d]", "", profile.get("identity.phone") or "")
-        local = digits[-10:] if len(digits) > 10 else digits
         for el in root.locator("input[type='tel'], input[name*='phone' i], input[id*='phone' i]").all():
             try:
                 if el.is_visible() and not el.input_value(timeout=500):
-                    el.click(); el.type(local, delay=30); n += 1
+                    el.click(); el.type(phone_value(page, el, root), delay=30); n += 1
             except Exception:
                 continue
     except Exception as e:  # noqa: BLE001

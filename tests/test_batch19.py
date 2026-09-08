@@ -960,3 +960,19 @@ def test_people_view_shows_what_actually_reached_each_person():
 
     assert client.get("/api/outreach/people?company=Acme").json()["total"] == 2
     assert client.get("/api/outreach/people?q=elsew").json()["total"] == 1
+
+
+def test_phone_drops_the_country_code_when_the_form_already_asks_for_it():
+    """A form with its own +91 selector plus '+91 9711324698' typed in the box gives an unusable number."""
+    from backend.core.apply import forms
+
+    class El:
+        def __init__(self, detected): self.detected = detected
+        def evaluate(self, js): return self.detected
+        def get_attribute(self, name): return "tel" if name == "type" else None
+
+    assert forms.phone_value(None, El("widget")) == "9711324698"     # intl-tel-input style flag picker
+    assert forms.phone_value(None, El("sibling")) == "9711324698"    # a separate country dropdown next to it
+    assert forms.phone_value(None, El("")) == "+91 9711324698"       # a plain phone box keeps the country code
+    assert forms.PHONE_LABEL_RX.search("Phone *") and forms.PHONE_LABEL_RX.search("Mobile Number")
+    assert not forms.PHONE_LABEL_RX.search("Full name")
