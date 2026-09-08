@@ -778,3 +778,98 @@ def test_approve_all_respects_filters_and_the_safety_gate():
         assert by_company["bad-factcheck"] == "pending_review"
 
     assert client.post("/api/applications/approve-all", json={}).json()["approved"] == 1   # the US one
+
+
+def test_people_are_ranked_across_roles_not_ten_recruiters():
+    from backend.core.skills.linkedin_people import LinkedInPeopleSkill, role_of
+    from backend.core.runner import RunContext
+    assert role_of("Senior Technical Recruiter") == "recruiter"
+    assert role_of("Engineering Manager, AI Platform") == "hiring manager"
+    assert role_of("Co-Founder & CTO") == "founder"
+    assert role_of("Head of People") == "people team"
+    assert role_of("Marketing Lead") == "other"
+
+    skill = LinkedInPeopleSkill(RunContext("skill", "test"))
+    cards = [("R1", "Technical Recruiter at Acme", "https://li/in/r1"),
+             ("R2", "Recruiter at Acme", "https://li/in/r2"),
+             ("R3", "Talent Acquisition at Acme", "https://li/in/r3"),
+             ("M1", "Engineering Manager at Acme", "https://li/in/m1"),
+             ("F1", "Co-Founder at Acme", "https://li/in/f1"),
+             ("E1", "Software Engineer at Acme", "https://li/in/e1")]
+    skill._pick_cards = lambda page, company, on_company_page: cards
+    skill.company_slug = lambda page, company: None
+    skill.take = lambda action, ref=None: True
+    skill.guard = lambda page: None
+
+    class Page:
+        def goto(self, *a, **k): pass
+        def wait_for_timeout(self, ms): pass
+    import backend.core.humanize as hz
+    real_pause, real_scroll = hz.pause, hz.human_scroll
+    hz.pause = lambda *a, **k: None; hz.human_scroll = lambda *a, **k: None
+    try:
+        people = skill.find_people(Page(), "Acme", want=4)
+    finally:
+        hz.pause, hz.human_scroll = real_pause, real_scroll
+    roles = [p[3] for p in people]
+    assert len(people) == 4
+    assert len(set(roles)) >= 3, f"expected a spread of roles, got {roles}"
+    assert roles[0] == "hiring manager", "a hiring manager should come before a recruiter"
+    assert len({p[2] for p in people}) == 4, "no duplicate profiles"
+
+
+def test_one_message_per_person_across_many_roles_at_one_company(monkeypatch):
+    """Twelve open roles at one company used to mean twelve notes to the same recruiter."""
+    from backend.app.models import Job, Contact, Outreach
+    from backend.core.skills.linkedin_people import LinkedInPeopleSkill
+    from backend.core.runner import RunContext
+    with session() as db:
+        for i, score in enumerate((70, 95, 80)):
+            j = Job(dedupe_key=f"oa{i}", source="greenhouse", company="openai", title=f"Engineer {i}",
+                    url=f"https://x/{i}", fit_score=score, eligible=True)
+            db.add(j); db.flush()
+            db.add(Outreach(job_id=j.id, channel="linkedin_connect", step=1, status="pending_review"))
+        best = db.query(Job).filter_by(fit_score=95).one().id
+
+    skill = LinkedInPeopleSkill(RunContext("skill", "test"))
+    skill.find_people = lambda page, company, want: [("A", "Recruiter at openai", "https://li/in/a", "recruiter"),
+                                                     ("B", "Engineering Manager at openai", "https://li/in/b", "hiring manager")]
+    skill.draft_note = lambda name, title, job_id: f"Hi {name}, about job {job_id}"
+    import backend.core.humanize as hz
+    real_pause = hz.pause; hz.pause = lambda *a, **k: None
+    try:
+        skill.find(page=None, limit=5)
+    finally:
+        hz.pause = real_pause
+
+    with session() as db:
+        live = db.query(Outreach).filter(Outreach.status == "pending_review").all()
+        assert len(live) == 2, "one row per person, not one per job"
+        assert {db.get(Contact, o.contact_id).linkedin_url for o in live} == {"https://li/in/a", "https://li/in/b"}
+        assert all(o.job_id == best for o in live), "each note should reference the best-fitting role"
+        stopped = db.query(Outreach).filter(Outreach.status == "stopped").all()
+        assert len(stopped) == 1 and "one message per person" in stopped[0].error
+
+
+def test_emails_are_drafted_per_person_and_only_with_a_real_address(monkeypatch):
+    from backend.app.models import Job, Contact, Outreach
+    from backend.core.skills.linkedin_people import LinkedInPeopleSkill
+    from backend.core.runner import RunContext
+    from backend.core import llm
+    with session() as db:
+        j = Job(dedupe_key="e1", source="greenhouse", company="Acme", title="AI Engineer", url="https://x/1",
+                description="d" * 300, fit_score=90, eligible=True)
+        db.add(j); db.flush()
+        people = [("Ann", "ann@acme.com", "found"), ("Bob", "bob@acme.com", "found"),
+                  ("Cara", None, None), ("Dan", "careers@acme.com", "pattern")]
+        for name, email, conf in people:
+            c = Contact(company="Acme", name=name, title="Engineering Manager", email=email,
+                        email_confidence=conf, linkedin_url=f"https://li/in/{name.lower()}")
+            db.add(c); db.flush()
+            db.add(Outreach(job_id=j.id, contact_id=c.id, channel="linkedin_connect", step=1, status="pending_review"))
+    monkeypatch.setattr(llm, "complete_json", lambda *a, **k: {"subject": "s", "body": "b", "linkedin_note": "n"})
+    assert LinkedInPeopleSkill(RunContext("skill", "t")).email_the_found() == 2
+    with session() as db:
+        emailed = {db.get(Contact, o.contact_id).name for o in db.query(Outreach).filter_by(channel="email").all()}
+        assert emailed == {"Ann", "Bob"}, emailed        # no address, or a guessed one, means no email row
+        assert all(o.status == "pending_review" for o in db.query(Outreach).filter_by(channel="email").all())

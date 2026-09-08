@@ -22,7 +22,7 @@ PLATFORMS = [
     _C("reddit", "Reddit hiring posts"),
     {"key": "ats_apply", "name": "ATS apply worker (Greenhouse/Lever/Ashby/Workable)", "type": "skill", "status": "ready", "login": False, "modes": ["run"]},
     _S("linkedin", "LinkedIn", ("discover", "hydrate", "easy_apply", "find_people", "connect", "dm")),
-    _S("linkedin_people", "LinkedIn people (find -> connect -> message)", ("find", "connect", "message")),
+    _S("linkedin_people", "LinkedIn people (find -> connect -> message)", ("find", "connect", "message", "email_found")),
     _S("ycombinator", "YC Work at a Startup"), _S("wellfound", "Wellfound"), _S("instahyre", "Instahyre"), _S("cutshort", "Cutshort"),
     _S("jobright", "Jobright (AI match feed -> employer ATS)", ("discover",)),
     _S("hirist", "Hirist"), _S("naukri", "Naukri"), _S("peerlist", "Peerlist"),

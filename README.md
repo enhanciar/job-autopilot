@@ -31,10 +31,15 @@ discover  →  hydrate  →  score  →  prepare  →  YOU REVIEW  →  apply  �
    under `outreach_only_sources` in config.yaml (We Work Remotely is there by default). Their jobs are still discovered,
    scored and prepared, but no form worker touches them: the route is finding someone at the company on LinkedIn and
    sending them a note you approve. Filter the Applications page by route "contact a person" to see them.
-8. **Outreach.** For applied companies the system finds a recruiter or hiring manager, drafts an email and a LinkedIn note
+8. **People, not just companies.** For each company the LinkedIn people finder looks for up to
+   `outreach.people_per_company` (default 10) people across different roles: hiring manager, recruiter, founder, senior
+   engineer, engineer, people team. Each person gets exactly one note, written for who they are (an engineer is asked
+   what the work is like, a recruiter about the process), about the best-fitting open role there. Nobody is contacted
+   twice, and email is drafted only for people whose real address is known.
+9. **Outreach.** For applied companies the system finds a recruiter or hiring manager, drafts an email and a LinkedIn note
    from your profile, and sends only after you approve. Day-4 and day-9 follow-ups are drafted for review. Replies and
    bounces stop the sequence. LinkedIn invitations and X/Twitter DMs work the same way.
-9. **Track.** Applications, outreach and every run's log are in the dashboard; optional Google Sheets sync.
+10. **Track.** Applications, outreach and every run's log are in the dashboard; optional Google Sheets sync.
 
 ### Safety rules built in
 - Money is never spent. Some job boards route "Apply" into a paid-subscription checkout; any page showing a plan, a

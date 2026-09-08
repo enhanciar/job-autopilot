@@ -126,6 +126,8 @@ def draft(ctx, limit: int = 20, provider: str | None = None, sources: list[str] 
         with session() as db:
             if cconf == "found":   # guessed careers@ addresses bounce; email only real contacts, LinkedIn covers the rest
                 db.add(Outreach(job_id=jid, contact_id=cid, channel="email", step=1, subject=out.get("subject"), body=out.get("body"), status="pending_review"))
+            # One LinkedIn row per company for now; the people finder fans this out to one row per person and rewrites
+            # each note for who that person is. Making N rows here would waste N drafts on a contact we have not met yet.
             db.add(Outreach(job_id=jid, contact_id=cid, channel="linkedin_connect", step=1, body=out.get("linkedin_note"), status="pending_review"))
         ctx.log("info", f"outreach drafted: {company} — {title} -> {cemail} ({cconf})"); ctx.bump("drafted")
     ctx.log("info", f"outreach done: {ctx.stats}")

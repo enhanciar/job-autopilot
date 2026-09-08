@@ -15,11 +15,34 @@ from urllib.parse import quote_plus
 from datetime import datetime
 from backend.app.db import session
 from backend.app.models import Job, Contact, Outreach
-from backend.core import humanize, llm, profile
+from backend.core import config, humanize, llm, profile
 from backend.core.skills.base import BaseSkill, SkillPaused
 
 TITLE_RX = re.compile(r"recruit|talent|hiring|people (ops|partner|team)|head of people|founder|co-founder|\bceo\b|\bcto\b|"
-                      r"engineering manager|head of engineering|vp,? engineering", re.I)
+                      r"engineering manager|head of engineering|vp,? engineering|"
+                      r"software engineer|ai engineer|ml engineer|machine learning|forward deployed|solutions engineer|"
+                      r"staff engineer|principal engineer|tech lead|team lead|director of engineering|head of ai|head of product", re.I)
+
+# Who to approach, best first. One person per bucket beats ten recruiters: a hiring manager and a future teammate can
+# each act on your message in a way a coordinator cannot.
+ROLE_BUCKETS = [
+    ("hiring manager", re.compile(r"engineering manager|head of engineering|director of engineering|vp,? engineering|head of ai|tech lead|team lead", re.I)),
+    ("recruiter", re.compile(r"technical recruit|recruit|talent acquisition|talent partner|talent$", re.I)),
+    ("founder", re.compile(r"founder|co-founder|\bceo\b|\bcto\b", re.I)),
+    ("senior engineer", re.compile(r"staff engineer|principal engineer|senior (software|ai|ml) engineer|forward deployed", re.I)),
+    ("engineer", re.compile(r"software engineer|ai engineer|ml engineer|machine learning|solutions engineer", re.I)),
+    ("people team", re.compile(r"people (ops|partner|team)|head of people|hiring", re.I)),
+]
+
+
+def role_of(headline: str) -> str:
+    for name, rx in ROLE_BUCKETS:
+        if rx.search(headline or ""): return name
+    return "other"
+
+
+SEARCH_ANGLES = ["recruiter", "talent acquisition", "engineering manager", "forward deployed engineer",
+                 "AI engineer", "software engineer", "founder"]
 STOP = {"inc", "ltd", "llc", "the", "and", "com", "corp", "labs", "group", "technologies", "technology", "software",
         "solutions", "consultants", "corporation", "company", "co", "gmbh", "pvt", "private", "limited"}
 NOTE_SYSTEM = ("You write LinkedIn connection-request notes for a job seeker. Output ONLY the note text. Hard limit 190 characters "
@@ -52,31 +75,101 @@ class LinkedInPeopleSkill(BaseSkill):
     needs_login = True
 
     def execute(self, page, mode: str = "find", limit: int = 10, dry_run: bool = False, **_):
+        if mode == "email_found":
+            self.email_the_found(); return
         {"find": self.find, "connect": self.connect, "message": self.message}[mode](page, limit, dry_run)
 
     # ------------------------------------------------------------------ find
     def find(self, page, limit, dry_run=False):
+        """Find the people worth approaching at each company, and make one message per person.
+
+        Before this, a company with twelve open roles produced twelve messages all aimed at the same recruiter, of which
+        the duplicate guard let exactly one through. Now the unit is the person: each company is searched once, up to
+        `people_per_company` people are kept across different roles, and every one of them gets a single note about the
+        best-fitting role there. Surplus per-job rows are stopped rather than left to look like pending work.
+        """
+        want = int((config.load().get("outreach") or {}).get("people_per_company", 10))
         with session() as db:
             rows = db.query(Outreach).filter(Outreach.channel == "linkedin_connect",
                                              Outreach.status.in_(["pending_review", "approved"])).order_by(Outreach.id).all()
-            todo = []
+            groups: dict[str, dict] = {}
             for o in rows:
-                c = db.get(Contact, o.contact_id) if o.contact_id else None
-                if c and c.linkedin_url: continue
                 j = db.get(Job, o.job_id) if o.job_id else None
-                if j: todo.append((o.id, o.contact_id, company_key(j.company)))
-        cache: dict[str, tuple | None] = {}
-        for oid, cid, company in todo[:limit]:
+                if not j: continue
+                c = db.get(Contact, o.contact_id) if o.contact_id else None
+                key = company_key(j.company)
+                g = groups.setdefault(key, {"company": j.company, "rows": [], "linked": set(), "best": (None, -1)})
+                g["rows"].append(o.id)
+                if c and c.linkedin_url: g["linked"].add(c.linkedin_url)
+                if (j.fit_score or 0) > g["best"][1]: g["best"] = (j.id, j.fit_score or 0)
+            # people already approached anywhere, so nobody is contacted twice
+            contacted = {url for (url,) in db.query(Contact.linkedin_url)
+                         .join(Outreach, Outreach.contact_id == Contact.id)
+                         .filter(Contact.linkedin_url.isnot(None),
+                                 Outreach.status.in_(["sent", "sending", "replied", "submission_unverified"])).all()}
+
+        todo = [(key, g) for key, g in groups.items() if len(g["linked"]) < want]
+        for key, g in todo[:limit]:
             if self.ctx.should_stop(): break
-            if company not in cache:
-                if not self.take("searches", company): break
-                cache[company] = self.find_recruiter(page, company)
-                humanize.pause("between_items_s")
-            person = cache[company]
-            if not person:
-                self.log("warn", f"no verified recruiter found for {company}"); self.ctx.bump("not_found"); continue
-            self.attach(oid, cid, *person)
-            self.log("info", f"{company} -> {person[0]} ({person[1][:50]}) {person[2]}"); self.ctx.bump("found")
+            company, job_id, spare_rows = g["company"], g["best"][0], list(g["rows"])
+            people = self.find_people(page, key, want=want)
+            fresh = [p for p in people if p[2] not in g["linked"] and p[2] not in contacted]
+            if not fresh:
+                self.log("warn", f"no new people found for {company}"); self.ctx.bump("not_found"); continue
+            self.log("info", f"{company}: {len(fresh)} person(s) — " + ", ".join(f"{p[0]} ({p[3]})" for p in fresh[:6]))
+            for person in fresh:
+                name, headline, url, role = person
+                contacted.add(url)
+                if dry_run: continue
+                oid = spare_rows.pop(0) if spare_rows else self._new_row(job_id)
+                self._point_at(oid, job_id)      # every note is about the strongest role at that company
+                self.attach(oid, None, name, headline, url)
+                self.ctx.bump("found")
+            for leftover in spare_rows:                       # more roles than people: those rows have no one to go to
+                self._set(leftover, "stopped", "one message per person: this company's contacts are covered by other rows")
+            humanize.pause("between_items_s")
+
+    def _point_at(self, oid: int, job_id):
+        with session() as db:
+            o = db.get(Outreach, oid)
+            if job_id and o.job_id != job_id: o.job_id = job_id
+
+    def email_the_found(self, ctx=None) -> int:
+        """Draft an email to any person we found on LinkedIn whose address we also know.
+
+        LinkedIn gives the person and the role; the address comes from the employer's site or the posting. Without an
+        address there is no email row at all, because guessed addresses bounce and damage the domain.
+        """
+        from backend.core.outreach import EMAIL_SYSTEM
+        drafted = 0
+        with session() as db:
+            people = db.query(Contact).filter(Contact.linkedin_url.isnot(None), Contact.email.isnot(None),
+                                              Contact.email_confidence == "found").all()
+            todo = [(c.id, c.name, c.title, c.company, c.email) for c in people
+                    if not db.query(Outreach).filter_by(contact_id=c.id, channel="email").count()]
+        for cid, name, title, company, email in todo:
+            with session() as db:
+                row = db.query(Outreach).filter_by(contact_id=cid, channel="linkedin_connect").first()
+                job = db.get(Job, row.job_id) if row and row.job_id else None
+                if not job: continue
+                jt = f"Company: {job.company}\nTitle: {job.title}\nURL: {job.url}\n\n{(job.description or '')[:4000]}"
+                jid = job.id
+            try:
+                out = llm.complete_json("outreach", f"PROFILE:\n{profile.as_text()}\n\nCONTACT: {name} ({title}, {email})\n\nJOB:\n{jt}",
+                                        EMAIL_SYSTEM, use_cache=False)
+            except Exception as e:  # noqa: BLE001
+                self.log("warn", f"email draft failed for {name} at {company}: {str(e)[:90]}"); continue
+            with session() as db:
+                db.add(Outreach(job_id=jid, contact_id=cid, channel="email", step=1,
+                                subject=out.get("subject"), body=out.get("body"), status="pending_review"))
+            drafted += 1
+        self.log("info", f"drafted {drafted} email(s) to people found on LinkedIn")
+        return drafted
+
+    def _new_row(self, job_id) -> int:
+        with session() as db:
+            o = Outreach(job_id=job_id, channel="linkedin_connect", step=1, status="pending_review")
+            db.add(o); db.flush(); return o.id
 
     def company_slug(self, page, company: str) -> str | None:
         page.goto(f"https://www.linkedin.com/search/results/companies/?keywords={quote_plus(company)}", wait_until="domcontentloaded")
@@ -92,20 +185,64 @@ class LinkedInPeopleSkill(BaseSkill):
         return None
 
     def find_recruiter(self, page, company: str):
-        """(name, headline, url) of a recruiter/talent/founder at `company`, or None. Company page first; global search second."""
+        """The single best contact at `company`; kept for callers that only need one."""
+        people = self.find_people(page, company, want=1)
+        return people[0][:3] if people else None
+
+    def find_people(self, page, company: str, want: int = 10) -> list[tuple]:
+        """Up to `want` people at `company`, as (name, headline, url, role), spread across roles rather than ten recruiters.
+
+        Searches the company's own People tab first (most reliable for employment), then a few global searches by angle.
+        Each search costs one unit of the daily search cap, and stops early once enough distinct roles are covered.
+        """
+        found: dict[str, tuple] = {}                      # profile url -> (name, headline, url, role)
+
+        def harvest(on_company_page: bool):
+            for name, headline, url in self._pick_cards(page, company, on_company_page):
+                if url in found: continue
+                found[url] = (name, headline, url, role_of(headline))
+
         slug = self.company_slug(page, company)
         if slug:
-            page.goto(f"https://www.linkedin.com/company/{slug}/people/?keywords=recruiter", wait_until="domcontentloaded")
-            humanize.pause(); self.guard(page); humanize.human_scroll(page, 1200); page.wait_for_timeout(2000)
-            hit = self._pick_card(page, company, on_company_page=True)
-            if hit: return hit
-        q = quote_plus(f'"{company}" recruiter OR "talent acquisition" OR "technical recruiter"')
-        page.goto(f"https://www.linkedin.com/search/results/people/?keywords={q}&origin=GLOBAL_SEARCH_HEADER", wait_until="domcontentloaded")
-        humanize.pause(); self.guard(page); humanize.human_scroll(page, 800)
-        return self._pick_card(page, company, on_company_page=False)
+            for keywords in ("", "recruiter", "engineering manager", "engineer"):
+                if len(found) >= want or self.ctx.should_stop(): break
+                if not self.take("searches", f"{company}:{keywords or 'all'}"): break
+                page.goto(f"https://www.linkedin.com/company/{slug}/people/?keywords={quote_plus(keywords)}",
+                          wait_until="domcontentloaded")
+                humanize.pause(); self.guard(page)
+                humanize.human_scroll(page, 1400); page.wait_for_timeout(1800)
+                harvest(on_company_page=True)
+        for angle in SEARCH_ANGLES:
+            if len(found) >= want or self.ctx.should_stop(): break
+            if not self.take("searches", f"{company}:{angle}"): break
+            q = quote_plus(f'"{company}" {angle}')
+            page.goto(f"https://www.linkedin.com/search/results/people/?keywords={q}&origin=GLOBAL_SEARCH_HEADER",
+                      wait_until="domcontentloaded")
+            humanize.pause(); self.guard(page); humanize.human_scroll(page, 900)
+            harvest(on_company_page=False)
+            humanize.pause("between_items_s")
+
+        # one per role first, so the list is not ten recruiters, then fill up by role priority
+        order = [name for name, _ in ROLE_BUCKETS] + ["other"]
+        ranked, used_roles = [], set()
+        for role in order:
+            for person in found.values():
+                if person[3] == role and person[2] not in [p[2] for p in ranked]:
+                    ranked.append(person); used_roles.add(role); break
+        for role in order:
+            for person in found.values():
+                if len(ranked) >= want: break
+                if person[3] == role and person[2] not in [p[2] for p in ranked]:
+                    ranked.append(person)
+        return ranked[:want]
 
     def _pick_card(self, page, company, on_company_page):
-        best, seen = None, set()
+        hits = self._pick_cards(page, company, on_company_page)
+        return hits[0] if hits else None
+
+    def _pick_cards(self, page, company, on_company_page) -> list[tuple]:
+        """Every plausible person on the current results page, connectable ones first."""
+        connectable, rest, seen = [], [], set()
         for a in page.locator("a[href*='/in/']").all()[:60]:
             try:
                 url = (a.get_attribute("href") or "").split("?")[0]
@@ -122,17 +259,22 @@ class LinkedInPeopleSkill(BaseSkill):
                 if on_company_page and re.search(r"freelance|ex-|former|independent", headline, re.I) and not mentions(headline, company): continue
                 full = url if url.startswith("http") else "https://www.linkedin.com" + url
                 cand = (name, headline[:120], full)
-                if any(l.lower() == "connect" for l in lines): return cand      # 2nd degree: can connect straight away
-                best = best or cand
+                if any(l.lower() == "connect" for l in lines):
+                    connectable.append(cand)                                    # 2nd degree: can connect straight away
+                else:
+                    rest.append(cand)
             except Exception:
                 continue
-        return best
+        return connectable + rest
 
     def attach(self, oid, cid, name, title, url):
         with session() as db:
             o = db.get(Outreach, oid)
+            existing = db.query(Contact).filter_by(linkedin_url=url).first()
             c = db.get(Contact, cid) if cid else None
-            if c and not c.linkedin_url:
+            if existing:
+                o.contact_id = existing.id; c = existing
+            elif c and not c.linkedin_url:
                 c.name, c.title, c.linkedin_url, c.source = name, title, url, "linkedin_people"
             else:
                 j = db.get(Job, o.job_id) if o.job_id else None
@@ -143,11 +285,21 @@ class LinkedInPeopleSkill(BaseSkill):
                 self.log("info", f"outreach #{oid}: note changed after approval; back to review")
 
     def draft_note(self, name, title, job_id) -> str:
+        """A note written for this person: an engineer is asked what the work is really like, a manager about the role."""
         with session() as db:
             j = db.get(Job, job_id) if job_id else None
             company, jtitle, desc = (j.company, j.title, (j.description or "")[:1500]) if j else ("", "", "")
         first = name.split()[0].title()
-        prompt = (f"SEEKER PROFILE:\n{profile.as_text()[:2500]}\n\nRECRUITER: {name} ({title}) at {company}\nROLE: {jtitle}\n"
+        role = role_of(title)
+        angle = {"recruiter": "ask about the hiring process for the role",
+                 "people team": "ask about the hiring process for the role",
+                 "hiring manager": "speak to the problem the team is solving and ask for a short chat",
+                 "founder": "speak to the business outcome you can own and ask for a short chat",
+                 "senior engineer": "ask what the work is actually like day to day",
+                 "engineer": "ask what the work is actually like day to day",
+                 "other": "ask for a short chat"}[role]
+        prompt = (f"SEEKER PROFILE:\n{profile.as_text()[:2500]}\n\nPERSON: {name} ({title}) at {company} — treat them as a "
+                  f"{role}, so {angle}.\nROLE THEY ARE HIRING FOR: {jtitle}\n"
                   f"JOB SNIPPET: {desc}\n\nWrite the note (<=190 chars) starting with 'Hi {first},'.")
         note = ""
         for _ in range(3):
