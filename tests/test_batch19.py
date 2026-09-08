@@ -228,6 +228,10 @@ def test_capability_answers_only_claim_what_the_profile_lists():
     assert profile.answer_for("Do you have experience with Azure?", prof) == "No"      # explicit No is honoured
     assert profile.answer_for("Have you used Kubernetes?", prof) is None               # unlisted stays for the human
     assert profile.answer_for("Have you worked with Snowflake in a production environment?", prof) is None
+    # the technology can sit behind a verb phrase: "experience deploying applications on Azure"
+    assert profile.answer_for("Do you have experience deploying applications on Azure?", prof) == "No"
+    assert profile.answer_for("Do you have experience working with Docker?", prof) == "Yes"
+    assert profile.answer_for("Do you have experience building applications in Rust?", prof) is None
 
 
 def test_hn_apply_target_reads_the_link_out_of_the_post():

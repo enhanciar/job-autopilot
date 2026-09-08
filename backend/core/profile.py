@@ -115,6 +115,8 @@ CAPABILITY_RX = re.compile(r"(?:have you (?:ever )?(?:worked with|worked on|used
                            r"|do you have (?:any )?(?:hands.?on )?experience (?:with|in|using|of)"
                            r"|are you (?:experienced|comfortable|familiar) (?:with|in)"
                            r"|experience (?:with|in|using))\s+(.{2,90})", re.I)
+# "experience deploying applications on Azure" — a verb between "experience" and the technology.
+CAPABILITY_VERB_RX = re.compile(r"experience\s+\w+ing\b[^?.]{0,60}?\b(?:on|with|in|using|to)\s+(.{2,60})", re.I)
 CAPABILITY_STOP = re.compile(r"\b(a |an |the |our |their )\b")
 
 
@@ -137,7 +139,7 @@ def capabilities(prof: dict | None = None) -> dict:
 
 def _capability_answer(question: str, prof: dict) -> str | None:
     """Yes/No for 'have you worked with X?' when X is named in the profile; None when it is not, so a human decides."""
-    m = CAPABILITY_RX.search(question)
+    m = CAPABILITY_RX.search(question) or CAPABILITY_VERB_RX.search(question)
     if not m: return None
     subject = CAPABILITY_STOP.sub(" ", m.group(1).lower())
     subject = re.split(r"\bin a production\b|\bin production\b|\?|\bfor \b|,", subject)[0]
