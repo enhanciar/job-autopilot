@@ -421,3 +421,49 @@ def test_clearing_the_inbox_never_undoes_stored_answers(monkeypatch):
     ops.clear_questions(apply=True, answered=True)
     assert questions.summary()["answered"] == 0
     assert profile.answer_for("Have you used Terraform?") == "Yes"     # still in force even with no record of the question
+
+
+def test_browser_opens_a_tab_when_chrome_has_none(monkeypatch):
+    """Closing the last window leaves Chrome alive with no context; attaching then fails, so a blank tab is requested."""
+    import json as _json, io
+    from backend.core import browser
+    state = {"targets": [], "asked": []}
+
+    class Response(io.BytesIO):
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+
+    def fake_urlopen(request, timeout=None):
+        url = request if isinstance(request, str) else request.full_url
+        if url.endswith("/json/version"): return Response(_json.dumps({"webSocketDebuggerUrl": "ws://x"}).encode())
+        if "/json/list" in url: return Response(_json.dumps(state["targets"]).encode())
+        if "/json/new" in url:
+            state["asked"].append(getattr(request, "method", "GET"))
+            state["targets"] = [{"type": "page", "url": "about:blank"}]
+            return Response(b"{}")
+        raise AssertionError(url)
+
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+    captured = {}
+
+    class FakeBrowser:
+        contexts = ["context"]
+        def close(self): captured["closed"] = True
+
+    class FakePlaywright:
+        chromium = type("C", (), {"connect_over_cdp": staticmethod(lambda url: FakeBrowser())})()
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+    monkeypatch.setattr(browser, "sync_playwright", lambda: FakePlaywright())
+
+    with browser.open_context("ats") as ctx:
+        assert ctx == "context"
+    assert state["asked"] and state["targets"], "a blank tab should have been requested"
+    assert captured.get("closed")
+
+    # a Chrome that still exposes no context is reported, not silently used
+    FakeBrowser.contexts = []
+    state["targets"] = [{"type": "page", "url": "about:blank"}]
+    with pytest.raises(RuntimeError, match="no browser context"):
+        with browser.open_context("ats"):
+            pass

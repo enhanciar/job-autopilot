@@ -102,8 +102,31 @@ def open_context(platform: str, headless: bool = False, profile: str | None = No
                     time.sleep(.25)
                 if not available():
                     raise RuntimeError("Could not open automation Chrome. An older automation window may own the shared profile; close that window once, then retry. No profile data was deleted.")
+            # Closing the last window leaves Chrome alive with no page target and no browser context; attaching then
+            # fails with "Browser context management is not supported". Ask it for a blank tab first.
+            def page_targets():
+                try:
+                    with urllib.request.urlopen(cdp.rstrip("/") + "/json/list", timeout=2) as response:
+                        return [t for t in json.load(response) if t.get("type") == "page"]
+                except Exception: return []
+            if not page_targets():
+                for method in ("PUT", "GET"):
+                    try:
+                        request = urllib.request.Request(cdp.rstrip("/") + "/json/new?about:blank", method=method)
+                        urllib.request.urlopen(request, timeout=5).read()
+                        break
+                    except Exception: continue
+                for _ in range(20):
+                    if page_targets(): break
+                    time.sleep(.25)
+                if not page_targets():
+                    raise RuntimeError("The automation Chrome has no window open and would not open one. "
+                                       "Quit Chrome once (the window using data/profiles/shared), then retry; no profile data is lost.")
             with sync_playwright() as p:
                 b = p.chromium.connect_over_cdp(cdp)
+                if not b.contexts:
+                    b.close()
+                    raise RuntimeError("Attached to the automation Chrome but it exposes no browser context; quit that Chrome window once and retry")
                 context = b.contexts[0]
                 try: yield context
                 finally: b.close()  # disconnect; externally launched Chrome and human tabs survive
