@@ -22,6 +22,12 @@ def validate(kind, name, params):
         catalog = {'collector': registry.COLLECTORS, 'pipeline': registry.PIPELINES, 'skill': registry.SKILLS, 'service': registry.SERVICES}.get(kind, {})
         fn = catalog.get(name)
         if fn is None: raise ValueError('Unknown run kind/name')
+        if kind == 'service':
+            allowed = {k for k, p in inspect.signature(fn).parameters.items() if k != 'ctx'}
+            if set(params) - allowed: raise ValueError('Unsupported parameters: ' + ', '.join(sorted(set(params) - allowed)))
+            if 'question_id' in params and (type(params['question_id']) is not int or params['question_id'] < 1):
+                raise ValueError('question_id must be a positive integer')
+            return params
         if kind == 'skill':
             fn = fn.run if name == 'ats_apply' else fn.execute
         allowed = {k for k, p in inspect.signature(fn).parameters.items() if k not in ('ctx', 'self', 'page') and p.kind not in (p.VAR_KEYWORD, p.VAR_POSITIONAL)}

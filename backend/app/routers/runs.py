@@ -72,10 +72,10 @@ def run_pipeline(name: str, body: TriggerRun | None = None):
 
 
 @router.post("/service/{name}")
-def run_service(name: str):
+def run_service(name: str, body: TriggerRun | None = None):
     fn = registry.SERVICES.get(name)
     if not fn: raise HTTPException(404, f"unknown service {name}")
-    return {"run_id": _enqueue("service", name)}
+    return {"run_id": _enqueue("service", name, (body.params if body else {}) or {})}
 
 
 @router.post("/skill/{name}")

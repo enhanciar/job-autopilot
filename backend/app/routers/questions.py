@@ -23,6 +23,13 @@ def auto():
     return {"resolved": questions.auto_resolve(), "summary": questions.summary()}
 
 
+@router.post("/{qid}/look")
+def look(qid: int):
+    """Open the employer's form and read out the choices it offers for this question."""
+    from backend.core import runner
+    return {"run_id": runner.enqueue("service", "question_lookup", {"question_id": qid})}
+
+
 @router.post("/bundle")
 def answer_bundle(body: dict = Body(...)):
     ids, message = body.get("ids") or [], (body.get("message") or "").strip()

@@ -146,6 +146,7 @@ class Question(Base):
     text: Mapped[str] = mapped_column(Text)                            # the clearest wording seen so far
     options: Mapped[list | None] = mapped_column(JSON)                 # visible choices, when it was a dropdown/radio
     companies: Mapped[list | None] = mapped_column(JSON)               # who asked it
+    job_ids: Mapped[list | None] = mapped_column(JSON)                 # the postings it came from, so we can go and look
     times_seen: Mapped[int] = mapped_column(Integer, default=1)
     status: Mapped[str] = mapped_column(String(20), default="open", index=True)     # open, answered, skipped
     answer: Mapped[str | None] = mapped_column(Text)

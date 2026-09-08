@@ -132,6 +132,7 @@ class ATSApplySkill(BaseSkill):
         with session() as db:
             a = db.get(Application, aid); j = a.job
             url, resume_path, cover, job_text, company, title = j.apply_url or j.url, a.resume_path, a.cover_note, _job_text(j, 3000), j.company, j.title
+            job_id = j.id
             forms.CTX["country"] = j.country
             a.status = "submitting"
         self.log("info", f"applying: {company} — {title}  ({url})")
@@ -193,7 +194,7 @@ class ATSApplySkill(BaseSkill):
         unanswered += forms.validate_required(page, root)
         if unanswered:
             from backend.core import questions
-            questions.record(unanswered, company)          # collect them so they can be answered once, in the Questions page
+            questions.record(unanswered, company, job_id)  # collect them so they can be answered once, in the Questions page
             self._fail(aid, "Unanswered fields: " + " | ".join(unanswered[:8]), page, "needs_human"); return
         if not uploaded and root.locator("input[type='file']").count():
             self._fail(aid, "resume upload field present but upload failed", page, "needs_human"); return
@@ -209,7 +210,7 @@ class ATSApplySkill(BaseSkill):
         self.log("info", f"[{company}] form complete; looking for the submit button")
         if not btn:
             # No submit here usually means a multi-step form: walk the remaining steps with a learned recipe.
-            if self._multi_step(page, root, aid, job_text, cover, resume_path, company, title):
+            if self._multi_step(page, root, aid, job_text, cover, resume_path, company, title, job_id):
                 return
             self._fail(aid, "no submit button found", page, "needs_human"); return
         self.guard(page)
@@ -307,7 +308,7 @@ class ATSApplySkill(BaseSkill):
                     continue
         return page
 
-    def _multi_step(self, page, root, aid, job_text, cover, resume_path, company, title, max_steps: int = 8) -> bool:
+    def _multi_step(self, page, root, aid, job_text, cover, resume_path, company, title, job_id=None, max_steps: int = 8) -> bool:
         """Walk a multi-page application using a recipe for this ATS family, learning it on first encounter.
 
         Returns True if the application reached a terminal state (submitted, or parked as needs_human with a real reason).
@@ -343,7 +344,7 @@ class ATSApplySkill(BaseSkill):
                 return True
             if unanswered:
                 from backend.core import questions
-                questions.record(unanswered, company)      # a multi-step form's questions belong in the inbox too
+                questions.record(unanswered, company, job_id)   # a multi-step form's questions belong in the inbox too
                 self._fail(aid, f"{fam} step {n + 1} unanswered: " + " | ".join(unanswered[:5]), page, "needs_human"); return True
             if step.get("is_final"):
                 shot = self.ctx.screenshot(page, f"app{aid}_final")

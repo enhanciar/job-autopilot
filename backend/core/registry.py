@@ -9,7 +9,17 @@ COLLECTORS = {**public_apis.REGISTRY, **ats_boards.REGISTRY, **more_collectors.R
               **reddit_collector.REGISTRY, **hiringcafe_collector.REGISTRY, **relocateme_collector.REGISTRY}
 SKILLS = {**linkedin.SKILLS, **linkedin_people.SKILLS, **jobright.SKILLS, **x_outreach.SKILLS, **ats_worker.SKILLS, **instahyre.SKILLS, **cutshort.SKILLS, **hirist.SKILLS, **ycombinator.SKILLS, **wellfound.SKILLS, **naukri.SKILLS, **peerlist.SKILLS}
 PIPELINES = {**pipeline.PIPELINES, **outreach.PIPELINES}
-SERVICES = {"sheets_sync": sheets.sync, **gmail.SERVICES}
+def _question_lookup(ctx, question_id: int):
+    from backend.core import questions as _q
+    found = _q.look_at_form(question_id, ctx)
+    ctx.log("info", ("options offered by " + found["company"] + ": " + ", ".join(found["options"])) if found["options"]
+            else f"could not find that question on {found['company']}'s form; see the screenshot", screenshot=found["screenshot"])
+    _q.log_turn("assistant", (f"I opened {found['company']}'s form. The options it offers are: "
+                              + ", ".join(found["options"]) + ". Which one is true for you?") if found["options"]
+                else f"I opened {found['company']}'s form but could not find that question on it. The screenshot is in Runs & logs.")
+
+
+SERVICES = {"sheets_sync": sheets.sync, "question_lookup": _question_lookup, **gmail.SERVICES}
 
 _C = lambda k, n: {"key": k, "name": n, "type": "collector", "status": "ready", "login": False}
 _S = lambda k, n, modes=("discover", "apply"): {"key": k, "name": n, "type": "skill", "status": "ready", "login": True, "modes": list(modes)}

@@ -1053,3 +1053,56 @@ def test_a_bundle_answer_only_settles_what_it_addresses(monkeypatch):
     assert len(result["stored"]) == 1
     assert result["still_open"], "a question the reply did not address must stay open"
     assert questions.summary()["open"] >= 2
+
+
+def test_read_options_finds_the_question_and_its_choices():
+    """The point of looking at the form is the options only the employer knows."""
+    from backend.core import questions
+
+    class Node:
+        def __init__(self, text, options, visible=True):
+            self.text, self.options, self.visible = text, options, visible
+        def is_visible(self): return self.visible
+        def inner_text(self, timeout=None): return self.text
+        def locator(self, selector):
+            opts = self.options if ("option" in selector and "role" not in selector) else []
+            class L:
+                def all_inner_texts(inner): return opts
+            return L()
+
+    class Page:
+        def __init__(self, nodes): self.nodes = nodes
+        def locator(self, selector):
+            nodes = self.nodes
+            class L:
+                def count(inner): return len(nodes)
+                def nth(inner, i): return nodes[i]
+                def filter(inner, **k): return inner
+            return L()
+        def get_by_text(self, *a, **k):
+            class L:
+                def count(inner): return 0
+                @property
+                def first(inner): return inner
+            return L()
+
+    page = Page([
+        Node("Tell us about yourself", ["Something", "Else"]),
+        Node("If you're not authorized to work at the stated location, what sponsorship would you require?",
+             ["Select...", "H-1B", "TN", "O-1", "None required"]),
+    ])
+    found = questions.read_options(page, "If you're not authorized to work at the stated location, what sponsorship would you require for the role?")
+    assert found["options"] == ["H-1B", "TN", "O-1", "None required"], found
+    assert "Select..." not in found["options"]
+
+    nothing = questions.read_options(Page([Node("Unrelated block", ["A"])]), "What sponsorship would you require?")
+    assert nothing["options"] == []
+
+
+def test_look_at_form_needs_a_posting_to_open():
+    from backend.core import questions
+    from backend.core.runner import RunContext
+    questions.record(["What sponsorship would you require?"], "Brex")     # recorded without a job link
+    qid = questions.open_questions()[0]["id"]
+    with pytest.raises(ValueError, match="not linked to a posting"):
+        questions.look_at_form(qid, RunContext("service", "test"))

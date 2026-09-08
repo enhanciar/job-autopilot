@@ -62,7 +62,7 @@ def dispatch(ctx, spec):
         return
     if kind == 'pipeline': return registry.PIPELINES[name](ctx, **params)
     if kind == 'skill': return registry.SKILLS[name](ctx).run(**params)
-    if kind == 'service': return registry.SERVICES[name](ctx)
+    if kind == 'service': return registry.SERVICES[name](ctx, **params)
     if kind == 'fullrun':
         only = params.get('platforms')
         return fullrun.all_platforms(ctx, apply=bool(params.get('apply')), only=only)

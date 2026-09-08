@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Send, Wand2 } from 'lucide-react'
+import { Send, Wand2, Eye } from 'lucide-react'
 import { api, type Bundle, type ChatTurn } from '../api'
 import { Page, Empty } from '../components/ui'
 
@@ -36,6 +36,20 @@ export default function Questions() {
       setTurns(t => [...t, { role: 'assistant', text: r.reply, question_id: null }])
       setBundles(r.bundles); setSummary(r.summary)
       if (!r.bundles.some(b => b.theme === current.theme)) setActive(r.bundles[0]?.theme ?? '')
+    } catch (e) { setErr(String(e)) } finally { setBusy(false) }
+  }
+
+  const look = async (qid: number, text: string) => {
+    setBusy(true); setErr('')
+    setTurns(t => [...t, { role: 'assistant', text: `Opening the employer's form to read the choices for: ${text.slice(0, 90)}…`, question_id: qid }])
+    try {
+      await api.lookAtForm(qid)
+      setTimeout(() => load(), 4000)
+      const poll = setInterval(async () => {
+        const d = await api.questionBundles().catch(() => null)
+        if (d) { setTurns(d.history); setBundles(d.bundles); setSummary(d.summary) }
+      }, 6000)
+      setTimeout(() => clearInterval(poll), 90000)
     } catch (e) { setErr(String(e)) } finally { setBusy(false) }
   }
 
@@ -79,6 +93,11 @@ export default function Questions() {
           <div>
             <div className="inline-block max-w-[85%] rounded-lg px-3 py-2 text-sm whitespace-pre-wrap bg-zinc-800 text-zinc-200 border border-emerald-700/40">{current.prompt}</div>
             {current.asked_by.length > 0 && <div className="text-xs text-zinc-500 mt-1">asked by {current.asked_by.join(', ')}</div>}
+            <div className="flex flex-wrap gap-1.5 mt-2">
+              {current.questions.filter(q => q.job_ids.length).map((q, i) => (
+                <button key={q.id} className="btn btn-sm" disabled={busy} title={q.text}
+                  onClick={() => look(q.id, q.text)}><Eye className="size-3.5" /> Show me the choices for {i + 1}</button>))}
+            </div>
           </div>)}
         <div ref={endRef} />
       </div>

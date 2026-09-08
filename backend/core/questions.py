@@ -46,7 +46,7 @@ def is_useful(text: str, company: str | None = None) -> bool:
     return " " in clean or len(clean) > 8            # a lone word is almost always a stray label
 
 
-def record(questions, company: str | None = None) -> int:
+def record(questions, company: str | None = None, job_id: int | None = None) -> int:
     """Store the questions that stopped one application. Returns how many are newly open."""
     new = 0
     with session() as db:
@@ -64,13 +64,15 @@ def record(questions, company: str | None = None) -> int:
                 row.last_seen = datetime.utcnow()
                 if company and company not in (row.companies or []):
                     row.companies = [*(row.companies or []), company][:20]
+                if job_id and job_id not in (row.job_ids or []):
+                    row.job_ids = [*(row.job_ids or []), job_id][:20]
                 if choices and not row.options:
                     row.options = choices
                 if len(clean) > len(row.text):        # keep the clearest wording seen
                     row.text = clean
             else:
                 db.add(Question(fingerprint=fp, text=clean, options=choices, companies=[company] if company else [],
-                                status="open"))
+                                job_ids=[job_id] if job_id else [], status="open"))
                 db.flush()          # the next line of the same form may repeat this question
                 new += 1
     return new
@@ -130,7 +132,7 @@ def open_questions(limit: int = 50) -> list[dict]:
     with session() as db:
         rows = db.query(Question).filter_by(status="open").order_by(Question.times_seen.desc(), Question.id).limit(limit).all()
         return [{"id": q.id, "text": q.text, "options": q.options, "companies": q.companies or [],
-                 "times_seen": q.times_seen} for q in rows]
+                 "job_ids": q.job_ids or [], "times_seen": q.times_seen} for q in rows]
 
 
 def summary() -> dict:
@@ -307,3 +309,130 @@ def answer_bundle(ids: list[int], message: str) -> dict:
             failed.append(f"{target['question'][:50]}: {e}")
     still = [by_n[n]["question"] for n in (out or {}).get("unanswered", []) or [] if n in by_n]
     return {"reply": (out or {}).get("reply") or "Saved.", "stored": stored, "still_open": still, "failed": failed}
+
+
+# ---------------------------------------------------------------- going and looking at the real form
+def _match_score(question: str, text: str) -> float:
+    a = set(normalise(question).split()); b = set(normalise(text).split())
+    return len(a & b) / max(len(a), 1)
+
+
+PLACEHOLDER_OPTIONS = {"select...", "select", "choose", "choose...", "please select", "-- select --", "", "none"}
+
+
+def _clean_options(raw, question: str) -> list[str]:
+    """Real choices only: not the placeholder, not the question repeated back, not a paragraph."""
+    out = []
+    for option in dict.fromkeys(o.strip() for o in raw):
+        if not option or option.lower() in PLACEHOLDER_OPTIONS: continue
+        if len(option) > 120: continue                       # a block of prose is a description, not a choice
+        if _match_score(question, option) > 0.7: continue    # the question echoed as a label
+        out.append(option)
+    return out
+
+
+def read_options(page, question: str) -> dict:
+    """Find this question on the page in front of us and read out the choices the employer actually offers.
+
+    Two traps: a wrapper can hold several questions, whose labels then look like options; and the question's own text is
+    often repeated as a label. So the smallest container that still matches wins, and choices are only ever read from
+    real option elements or the labels of radio and checkbox inputs.
+    """
+    best = {"score": 0.0, "size": 10 ** 9, "options": [], "kind": None, "label": None}
+    containers = page.locator("select, fieldset, [role='radiogroup'], [role='listbox'], [class*='field'], [class*='question']")
+    for i in range(min(containers.count(), 80)):
+        node = containers.nth(i)
+        try:
+            if not node.is_visible(): continue
+            text = (node.inner_text(timeout=800) or "").strip()
+            if not text: continue
+            score = _match_score(question, text[:400])
+            if score < 0.5: continue
+            # a smaller container holding the same question is the more precise match
+            if (score, -len(text)) <= (best["score"], -best["size"]): continue
+            options = [o for o in node.locator("option").all_inner_texts()]
+            kind = "select"
+            if not options:
+                options = [o for o in node.locator("[role='option']").all_inner_texts()]
+                kind = "listbox"
+            if not options:
+                labelled = node.locator("label:has(input[type='radio']), label:has(input[type='checkbox'])")
+                options = [o for o in labelled.all_inner_texts()]
+                kind = "choice"
+            options = _clean_options(options, question)
+            if options:
+                best = {"score": score, "size": len(text), "options": options[:25], "kind": kind, "label": text[:200]}
+        except Exception:
+            continue
+    if best["options"]:
+        return best
+    # Greenhouse and Ashby use custom comboboxes rather than a <select>, and they render nothing until opened. Find the
+    # one whose own label matches the question, open it, and read the list.
+    try:
+        boxes = page.locator("[role='combobox'], [class*='select__control'], .vs__dropdown-toggle")
+        ranked = []
+        for i in range(min(boxes.count(), 30)):
+            box = boxes.nth(i)
+            try:
+                if not box.is_visible(): continue
+                label = box.evaluate("""e => {let n=e; for(let i=0;i<6&&n;i++){n=n.parentElement; if(!n) break;
+                    const l = n.querySelector('label, legend'); if (l && l.innerText.trim()) return l.innerText.trim();} return ''}""")
+                score = _match_score(question, label)
+                if score >= 0.5: ranked.append((score, i, label))
+            except Exception:
+                continue
+        for score, i, label in sorted(ranked, reverse=True)[:2]:
+            box = boxes.nth(i)
+            box.scroll_into_view_if_needed(); page.wait_for_timeout(300)
+            box.click(); page.wait_for_timeout(1400)
+            opts = page.locator("[role='option'], [class*='-option'], li[role='option']").filter(visible=True)
+            found = _clean_options([opts.nth(k).inner_text(timeout=600) for k in range(min(opts.count(), 30))], question)
+            page.keyboard.press("Escape"); page.wait_for_timeout(300)
+            if found:
+                return {"score": score, "size": 0, "options": found, "kind": "combobox", "label": label[:200]}
+    except Exception:
+        pass
+    return best
+
+
+def look_at_form(question_id: int, ctx) -> dict:
+    """Open the posting that asked this question and report the options it offers, with a screenshot.
+
+    For the times the honest answer depends on choices only the employer's form knows.
+    """
+    from backend.app.models import Job
+    from backend.core import browser
+    from backend.core.apply.worker import ATSApplySkill
+    with session() as db:
+        q = db.get(Question, question_id)
+        if not q: raise ValueError("Unknown question")
+        text = q.text
+        jobs = [db.get(Job, jid) for jid in (q.job_ids or [])]
+        targets = [(j.company, j.apply_url or j.url) for j in jobs if j]
+    if not targets:
+        raise ValueError("This question is not linked to a posting, so there is no form to open")
+    company, url = targets[0]
+    skill = ATSApplySkill(ctx)
+    with browser.open_context("ats", should_stop=ctx.should_stop) as bctx:
+        page = bctx.new_page()
+        try:
+            ctx.log("info", f"opening {company} to read the options for: {text[:70]}")
+            page.goto(url, wait_until="domcontentloaded", timeout=60000)
+            page.wait_for_timeout(3000)
+            browser.dismiss_overlay(page, ctx.log)
+            page = skill._follow_apply_links(page, None)
+            page.wait_for_timeout(2500)
+            # the questions live in the embedded Greenhouse/Ashby form, which is usually below the description
+            for _ in range(6):
+                page.mouse.wheel(0, 1400); page.wait_for_timeout(500)
+            root = skill._form_root(page)
+            found = read_options(root, text)
+            if not found["options"] and root is not page:
+                found = read_options(page, text)
+            shot = ctx.screenshot(page, f"question{question_id}")
+            if found["options"]:
+                with session() as db:
+                    db.get(Question, question_id).options = found["options"]
+            return {"company": company, "url": url, "options": found["options"], "label": found["label"], "screenshot": shot}
+        finally:
+            if not page.is_closed(): page.close()
