@@ -14,13 +14,14 @@ export default function Applications() {
   const [status, setStatus] = useState('')
   const [country, setCountry] = useState('')
   const [platform, setPlatform] = useState('')
+  const [method, setMethod] = useState('')
   const [q, setQ] = useState('')
-  const { page, setPage } = usePage(JSON.stringify([status, country, platform, q]))
-  const { data, err, refresh } = usePoll(() => api.applications({ status: status || undefined, country: country || undefined, platform: platform || undefined, q: q || undefined, size: 50, page }), 10000, [status, country, platform, q, page])
+  const { page, setPage } = usePage(JSON.stringify([status, country, platform, method, q]))
+  const { data, err, refresh } = usePoll(() => api.applications({ status: status || undefined, country: country || undefined, platform: platform || undefined, method: method || undefined, q: q || undefined, size: 50, page }), 10000, [status, country, platform, method, q, page])
   const { data: facets } = usePoll(api.appFacets, 15000)
   const sorted = (o?: Record<string, number>) => Object.entries(o ?? {}).sort((a, b) => b[1] - a[1])
   return (
-    <Page title="Applications" sub={`${data?.total ?? 0} records · filter by country, platform, status`}
+    <Page title="Applications" sub={`${data?.total ?? 0} records · filter by country, platform, route or status`}
       actions={<div className="flex gap-2"><input className="input" placeholder="company / title" value={q} onChange={e => setQ(e.target.value)} />
         <select className="input" value={status} onChange={e => setStatus(e.target.value)}>{STATUSES.map(s => <option key={s} value={s}>{s || 'All statuses'}</option>)}</select></div>}>
       {facets && <div className="card space-y-2">
@@ -32,6 +33,9 @@ export default function Applications() {
         <div className="flex flex-wrap gap-1.5 items-center"><span className="text-xs text-zinc-500 w-24">Platform</span>
           <Chip label="All" n={Object.values(facets.platform).reduce((a, b) => a + b, 0)} active={!platform} onClick={() => setPlatform('')} />
           {sorted(facets.platform).map(([k, n]) => <Chip key={k} label={k} n={n} active={platform === k} onClick={() => setPlatform(platform === k ? '' : k)} />)}</div>
+        <div className="flex flex-wrap gap-1.5 items-center"><span className="text-xs text-zinc-500 w-24">Route</span>
+          <Chip label="All" n={Object.values(facets.method).reduce((a, b) => a + b, 0)} active={!method} onClick={() => setMethod('')} />
+          {sorted(facets.method).map(([k, n]) => <Chip key={k} label={k === 'outreach' ? 'contact a person' : k.replace('_', ' ')} n={n} active={method === k} onClick={() => setMethod(method === k ? '' : k)} />)}</div>
         <div className="flex flex-wrap gap-1.5 items-center"><span className="text-xs text-zinc-500 w-24">Status</span>
           {sorted(facets.status).map(([k, n]) => <Chip key={k} label={k} n={n} active={status === k} onClick={() => setStatus(status === k ? '' : k)} />)}</div>
       </div>}
@@ -45,7 +49,7 @@ export default function Applications() {
               <td className="max-w-sm truncate"><a className="hover:underline" href={a.url} target="_blank" rel="noreferrer">{a.title}</a></td>
               <td className="text-zinc-400 whitespace-nowrap" title={a.location ?? ''}>{a.country ?? '—'}</td>
               <td className="text-zinc-300">{a.fit_score ?? '—'}</td>
-              <td className="text-zinc-400">{a.platform}</td><td className="text-zinc-400">{a.method.replace('_', ' ')}</td>
+              <td className="text-zinc-400">{a.platform}</td><td className="text-zinc-400" title={a.method === 'outreach' ? 'This board charges to apply through it, so the route is a person at the company' : ''}>{a.method === 'outreach' ? 'contact a person' : a.method.replace('_', ' ')}</td>
               <td><Badge v={a.status} />{a.error && <div className="text-[11px] text-rose-300 max-w-48 truncate" title={a.error}>{a.error}</div>}</td>
               <td className="text-xs space-x-2">{a.resume_path && <a className="underline" href={artifactUrl(a.resume_path)} target="_blank" rel="noreferrer">resume</a>}{a.screenshot_after && <a className="underline" href={artifactUrl(a.screenshot_after)} target="_blank" rel="noreferrer">confirm</a>}</td>
               <td><ApplicationActions key={`${a.id}-${a.status}`} app={a} onSaved={refresh} /></td>

@@ -345,7 +345,20 @@ class LinkedInPeopleSkill(BaseSkill):
     def _set(self, oid, status, err=None):
         with session() as db:
             o = db.get(Outreach, oid); o.status = status; o.error = err
-            if status == "sent": o.sent_at = datetime.utcnow()
+            if status == "sent":
+                o.sent_at = datetime.utcnow()
+                self._mark_contacted(db, o)
+
+    @staticmethod
+    def _mark_contacted(db, outreach):
+        """For a board we cannot apply through, reaching a person IS the application: record it as one, with the
+        invitation as the evidence. Ordinary applications are left alone; a form submission is what completes those."""
+        from backend.app.models import Application
+        if not outreach.job_id or outreach.channel != "linkedin_connect": return
+        app = db.query(Application).filter_by(job_id=outreach.job_id, method="outreach").first()
+        if not app or app.status not in ("approved", "pending_review", "needs_human"): return
+        app.status = "submitted"; app.submitted_at = datetime.utcnow(); app.job.status = "applied"
+        app.confirmation_text = f"LinkedIn invitation sent to the contact for this role (outreach #{outreach.id}); this board charges to apply through it."
 
 
 SKILLS = {"linkedin_people": LinkedInPeopleSkill}

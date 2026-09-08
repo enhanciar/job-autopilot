@@ -27,10 +27,14 @@ discover  →  hydrate  →  score  →  prepare  →  YOU REVIEW  →  apply  �
    and answer bank; platform skills use the platform's own apply flow (LinkedIn Easy Apply, Naukri, Instahyre …). Sites
    that need a human step (CAPTCHA, emailed security code, employer account) stop with `needs_human`; `assist.py` opens
    the filled form so you only do the human part. Unknown flows are learned once as a "recipe" and replayed later.
-7. **Outreach.** For applied companies the system finds a recruiter or hiring manager, drafts an email and a LinkedIn note
+7. **Boards that charge to apply.** Some job boards route their own "Apply" button into a paid subscription. List them
+   under `outreach_only_sources` in config.yaml (We Work Remotely is there by default). Their jobs are still discovered,
+   scored and prepared, but no form worker touches them: the route is finding someone at the company on LinkedIn and
+   sending them a note you approve. Filter the Applications page by route "contact a person" to see them.
+8. **Outreach.** For applied companies the system finds a recruiter or hiring manager, drafts an email and a LinkedIn note
    from your profile, and sends only after you approve. Day-4 and day-9 follow-ups are drafted for review. Replies and
    bounces stop the sequence. LinkedIn invitations and X/Twitter DMs work the same way.
-8. **Track.** Applications, outreach and every run's log are in the dashboard; optional Google Sheets sync.
+9. **Track.** Applications, outreach and every run's log are in the dashboard; optional Google Sheets sync.
 
 ### Safety rules built in
 - Money is never spent. Some job boards route "Apply" into a paid-subscription checkout; any page showing a plan, a

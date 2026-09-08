@@ -58,7 +58,7 @@ def retention(days=30):
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action',choices=['backup','report','restore','retention','relink-documents','route-email','link-apply-urls','recheck-answers','clear-stuck','rerender-resumes','clear-questions'])
+    parser.add_argument('action',choices=['backup','report','restore','retention','relink-documents','route-email','link-apply-urls','recheck-answers','clear-stuck','rerender-resumes','clear-questions','route-outreach'])
     parser.add_argument('--apply',action='store_true',help='write the change; without it the command only reports')
     parser.add_argument('--statuses',default='needs_human,failed',help='clear-stuck only: which application statuses to clear')
     parser.add_argument('--answered',action='store_true',help='clear-questions only: also forget the ones already answered')
@@ -70,6 +70,10 @@ def main():
     elif args.action=='restore':
         if not args.path or not args.destination: parser.error('--path and --destination are required')
         restore(args.path,args.destination);print('Restored to new destination')
+    elif args.action=='route-outreach':
+        result=route_outreach(args.apply)
+        print(json.dumps({'sources':result['sources'],'applications_moved':len(result['moved'])},indent=2))
+        if not args.apply: print('Nothing was written. Re-run with --apply.')
     elif args.action=='clear-questions':
         result=clear_questions(args.apply,args.answered)
         print(json.dumps(result,indent=2))
@@ -293,6 +297,31 @@ def clear_questions(apply: bool = False, answered: bool = False) -> dict:
                 db.delete(q)
             for t in db.query(ChatTurn).all():
                 db.delete(t)
+    return report
+
+
+def route_outreach(apply: bool = False) -> dict:
+    """Move applications from a board we cannot apply through onto the outreach route.
+
+    Their form worker route is a dead end (the board charges the candidate), so the method becomes 'outreach': no form
+    worker will touch them, and they are pursued by finding someone at the company on LinkedIn instead.
+    """
+    from backend.app.db import session
+    from backend.app.models import Application, Job
+    from backend.core import config as _config
+    sources = _config.load().get("outreach_only_sources") or []
+    report = {"sources": sources, "moved": []}
+    if not sources: return report
+    with session() as db:
+        rows = db.query(Application).join(Job).filter(Job.source.in_(sources), Application.method != "outreach",
+                                                      ~Application.status.in_(["submitted", "replied", "interview", "offer", "rejected"])).all()
+        for a in rows:
+            report["moved"].append(a.id)
+            if apply:
+                a.method = "outreach"
+                a.error = None
+                a.status = "approved" if a.status in ("approved", "needs_human", "failed") else a.status
+                a.answers = {**(a.answers or {}), "repair_note": "Board charges to apply through it; pursued by contacting someone at the company instead."}
     return report
 
 

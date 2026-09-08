@@ -80,6 +80,10 @@ def platform(ctx: RunContext, name: str, apply: bool = False, score_limit: int =
 
 
 def _apply_for(ctx: RunContext, name: str):
+    if name in (config.load().get("outreach_only_sources") or []):
+        # This board charges to apply through it; the way in is a person at the company.
+        _run_stage(ctx, f"draft outreach · {name}", lambda c: registry.PIPELINES["outreach_draft"](c, limit=30, sources=[name]))
+        return
     if name in PLATFORM_APPLY:
         key, mode = PLATFORM_APPLY[name]
         if not _run_stage(ctx, f"apply · {name}", lambda c: registry.SKILLS[key](c).run(mode=mode, limit=50)): return

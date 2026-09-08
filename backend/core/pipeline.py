@@ -178,7 +178,10 @@ def tailor(ctx, job_id: int, provider: str | None = None, replace_existing: bool
     overlay = {k: out.get(k) for k in ("headline", "summary", "skills_order", "experience_bullets")}
     pdf = resume.render_pdf(overlay, tag=f"{company}_{title}"[:40])
     PLATFORM_SKILLS = {"linkedin", "wellfound", "ycombinator", "naukri", "instahyre", "cutshort", "hirist", "peerlist"}
-    if source in ("hackernews", "reddit") and re.search(r"[\w.+-]+@[\w.-]+\.[a-zA-Z]{2,}", jt): method = "email"
+    # Some boards charge the candidate to apply through them. Their listings are still worth pursuing, but the way in is a
+    # person at the company, so the application is prepared for outreach and no form worker will ever touch it.
+    if source in (config.load().get("outreach_only_sources") or []): method = "outreach"
+    elif source in ("hackernews", "reddit") and re.search(r"[\w.+-]+@[\w.-]+\.[a-zA-Z]{2,}", jt): method = "email"
     elif ats == "linkedin": method = "easy_apply"
     elif ats in PLATFORM_SKILLS or source in PLATFORM_SKILLS: method = "platform_apply"
     elif ats in {"greenhouse", "lever", "ashby", "workable", "smartrecruiters", "rippling", "recruitee", "teamtailor", "personio", "bamboohr", "breezy", "jazzhr"}: method = "ats_form"

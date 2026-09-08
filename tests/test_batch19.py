@@ -498,3 +498,41 @@ def test_payment_pages_stop_the_application():
     assert forms.payment_wall(FakePage("Apply for this position. Upload your resume. Expected salary $120,000 per year.")) is None
     assert forms.payment_wall(FakePage("Tell us about yourself. Full name, email, phone. Submit application")) is None
     assert forms.payment_wall(FakePage("What are your salary expectations? We offer $150,000/year plus equity.")) is None
+
+
+def test_paywalled_board_becomes_an_outreach_target_not_a_form_submission(monkeypatch):
+    """A board that charges to apply through it must never reach the form worker; the route is a person instead."""
+    from backend.app.models import Job, Application, Contact, Outreach
+    from backend.core import pipeline, llm, resume, config, runner, ops
+    from backend.core.apply.worker import ATSApplySkill
+    monkeypatch.setattr(config, "load", lambda: {**cfg_base(), "outreach_only_sources": ["weworkremotely"]})
+    with session() as db:
+        j = Job(dedupe_key="wwr1", source="weworkremotely", company="Evaboot", title="Agentic Python Engineer",
+                url="https://weworkremotely.com/remote-jobs/evaboot", description="d" * 400, eligible=True, fit_score=88, status="scored")
+        db.add(j); db.flush(); jid = j.id
+    tailored = {"headline": "h", "summary": "s", "skills_order": [], "experience_bullets": {}, "cover_note": "c", "why_company": "w"}
+    monkeypatch.setattr(llm, "complete_json", lambda task, *a, **k: tailored if task == "tailor" else {"ok": True, "violations": []})
+    monkeypatch.setattr(resume, "render_pdf", lambda *a, **k: "data/artifacts/x.pdf")
+    ctx = runner.RunContext("pipeline", "test")
+    aid = pipeline.tailor(ctx, jid)
+    with session() as db:
+        assert db.get(Application, aid).method == "outreach"
+        db.get(Application, aid).status = "approved"
+    assert aid not in ATSApplySkill(ctx)._pending(50)          # the form worker never sees it
+
+    # reaching a person on LinkedIn is what completes it
+    with session() as db:
+        c = Contact(company="Evaboot", name="Sam", linkedin_url="https://linkedin.com/in/sam"); db.add(c); db.flush()
+        o = Outreach(job_id=jid, contact_id=c.id, channel="linkedin_connect", step=1, body="hi", status="sending"); db.add(o); db.flush(); oid = o.id
+    from backend.core.skills.linkedin_people import LinkedInPeopleSkill
+    LinkedInPeopleSkill(ctx)._set(oid, "sent")
+    with session() as db:
+        app = db.get(Application, aid)
+        assert app.status == "submitted" and "LinkedIn invitation sent" in app.confirmation_text
+        assert app.job.status == "applied"
+
+
+def cfg_base():
+    import yaml, pathlib
+    from backend.core import config
+    return yaml.safe_load(pathlib.Path(config.CONFIG_PATH).read_text())

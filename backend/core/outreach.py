@@ -98,12 +98,16 @@ def find_contact(db, job: Job) -> Contact | None:
     return c
 
 
-def draft(ctx, limit: int = 20, provider: str | None = None):
-    """Draft email + LinkedIn note for jobs with an application (queued/applied) and no outreach yet."""
+def draft(ctx, limit: int = 20, provider: str | None = None, sources: list[str] | None = None):
+    """Draft email + LinkedIn note for jobs with an application (queued/applied) and no outreach yet.
+    Outreach-only sources come first: for those this is the only route to the company."""
     prof = profile.as_text()
     with session() as db:
         done = {o.job_id for o in db.query(Outreach.job_id).filter(Outreach.job_id.isnot(None)).all()}
-        jobs = [j.id for j in db.query(Job).join(Application).filter(Job.status.in_(["queued", "applied"]), ~Job.id.in_(done)).order_by(Job.fit_score.desc()).limit(limit).all()]
+        q = db.query(Job).join(Application).filter(Job.status.in_(["queued", "applied"]), ~Job.id.in_(done))
+        if sources: q = q.filter(Job.source.in_(sources))
+        rows = q.order_by((Application.method == "outreach").desc(), Job.fit_score.desc()).limit(limit).all()
+        jobs = [j.id for j in rows]
     ctx.log("info", f"outreach: drafting for {len(jobs)} job(s)")
     for jid in jobs:
         if ctx.should_stop(): break
