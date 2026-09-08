@@ -398,3 +398,22 @@ def test_resume_page_limit_comes_from_config(monkeypatch):
     assert resume.max_pages() == 1
     monkeypatch.setattr(config, "load", lambda: {"resume": {"max_pages": 99}})
     assert resume.max_pages() == 2                                            # nonsense falls back, never unlimited
+
+
+def test_clearing_the_inbox_never_undoes_stored_answers(monkeypatch):
+    from backend.core import questions, ops, llm
+    questions.record(["Do you have experience with Terraform?"], "Acme")
+    questions.record(["What is your permanent address?"], "Beta")
+    monkeypatch.setattr(llm, "complete_json", lambda *a, **k: {"understood": True, "reply": "ok", "answer": "Yes",
+                                                              "store": "capabilities", "capability": "terraform", "yes": True, "skip": False})
+    first = next(q["id"] for q in questions.open_questions() if "Terraform" in q["text"])
+    questions.apply_answer(first, questions.interpret({"text": "x"}, "yes"))
+    questions.log_turn("user", "yes")
+    assert ops.clear_questions()["questions"] == 1                     # report-only, and answered ones are left alone
+    ops.clear_questions(apply=True)
+    assert questions.summary() == {"open": 0, "answered": 1, "skipped": 0}
+    assert questions.history() == []
+    assert profile.answer_for("Have you used Terraform?") == "Yes"     # the answer itself survives
+    ops.clear_questions(apply=True, answered=True)
+    assert questions.summary()["answered"] == 0
+    assert profile.answer_for("Have you used Terraform?") == "Yes"     # still in force even with no record of the question

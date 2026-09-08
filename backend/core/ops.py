@@ -58,9 +58,10 @@ def retention(days=30):
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action',choices=['backup','report','restore','retention','relink-documents','route-email','link-apply-urls','recheck-answers','clear-stuck','rerender-resumes'])
+    parser.add_argument('action',choices=['backup','report','restore','retention','relink-documents','route-email','link-apply-urls','recheck-answers','clear-stuck','rerender-resumes','clear-questions'])
     parser.add_argument('--apply',action='store_true',help='write the change; without it the command only reports')
     parser.add_argument('--statuses',default='needs_human,failed',help='clear-stuck only: which application statuses to clear')
+    parser.add_argument('--answered',action='store_true',help='clear-questions only: also forget the ones already answered')
     parser.add_argument('--path',type=Path); parser.add_argument('--destination',type=Path)
     args=parser.parse_args()
     if args.action=='backup':
@@ -69,6 +70,10 @@ def main():
     elif args.action=='restore':
         if not args.path or not args.destination: parser.error('--path and --destination are required')
         restore(args.path,args.destination);print('Restored to new destination')
+    elif args.action=='clear-questions':
+        result=clear_questions(args.apply,args.answered)
+        print(json.dumps(result,indent=2))
+        if not args.apply: print('Nothing was written. Re-run with --apply. Answers already stored are never undone.')
     elif args.action=='rerender-resumes':
         result=rerender_resumes(args.apply)
         print(json.dumps({k:len(v) for k,v in result.items()},indent=2))
@@ -267,6 +272,27 @@ def rerender_resumes(apply: bool = False) -> dict:
             report["rebuilt"].append(a.id)
             if apply:
                 a.resume_path = resume.render_pdf(overlay, tag=f"{a.job.company}_{a.job.title}"[:40])
+    return report
+
+
+def clear_questions(apply: bool = False, answered: bool = False) -> dict:
+    """Empty the question inbox and its conversation.
+
+    The answers you already gave are NOT undone: they live in the answer bank, your capabilities and your declarations,
+    and stay in force. This only clears the list of questions waiting to be answered, which is worth doing when the
+    applications that raised them are gone.
+    """
+    from backend.app.db import session
+    from backend.app.models import ChatTurn, Question
+    keep = () if answered else ("answered",)
+    with session() as db:
+        rows = db.query(Question).filter(~Question.status.in_(keep)) if keep else db.query(Question)
+        report = {"questions": rows.count(), "chat_turns": db.query(ChatTurn).count()}
+        if apply:
+            for q in rows.all():
+                db.delete(q)
+            for t in db.query(ChatTurn).all():
+                db.delete(t)
     return report
 
 
