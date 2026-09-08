@@ -10,18 +10,18 @@ from backend.app.db import session
 from backend.app.models import PlatformSession
 
 LOGIN_MARKERS = {
-    "jobright":   {"url": "https://jobright.ai/jobs/recommend", "logged_in_selector": "[class*='avatar'], a[href*='/profile'], [class*='job-card'], [class*='jobCard']", "login_url_part": "/login"},
-    "x":          {"url": "https://x.com/home", "logged_in_selector": "[data-testid='AppTabBar_Profile_Link'], [data-testid='SideNav_AccountSwitcher_Button']", "login_url_part": "/i/flow/login"},
-    "linkedin":   {"url": "https://www.linkedin.com/feed/", "logged_in_selector": "input[placeholder*='Search'], .global-nav__me", "login_url_part": "/login"},
-    "wellfound":  {"url": "https://wellfound.com/jobs", "logged_in_selector": "a[href='/jobs/applications'], a[href='/jobs/messages'], a[href*='/candidates/']", "login_url_part": "/login"},
-    "ycombinator":{"url": "https://www.workatastartup.com/companies", "logged_in_selector": "a[href='/application'], a[href='/conversations'], a[href*='/inbox']", "login_url_part": "account.ycombinator.com"},
-    "naukri":     {"url": "https://www.naukri.com/mnjuser/homepage", "logged_in_selector": ".nI-gNb-drawer__icon, .view-profile-wrapper, a[href*='/mnjuser/profile'], text=Complete profile", "login_url_part": "/nlogin"},
-    "cutshort":   {"url": "https://cutshort.io/profile/all-jobs", "logged_in_selector": "a[href*='/profile/'], a[href*='/messages'], text=Dashboard", "login_url_part": "redirect_url"},
-    "instahyre":  {"url": "https://www.instahyre.com/candidate/opportunities/", "logged_in_selector": "a[href*='/logout/'], a[href='/candidate/profile/'], .employer-details", "login_url_part": "/login"},
-    "hirist":     {"url": "https://www.hirist.tech/jobfeed", "logged_in_selector": "img[alt*='profile'], [class*='profile'], a[href*='/jobfeed']", "login_url_part": "/login"},
-    "peerlist":   {"url": "https://peerlist.io/jobs", "logged_in_selector": "a[href*='/jobs/applied-jobs'], a[href='/inbox']", "login_url_part": "/login"},
-    "ats":        {"url": "about:blank", "logged_in_selector": "body", "login_url_part": "__never__"},
-    "gmail":      {"url": "https://mail.google.com/", "logged_in_selector": "a[aria-label*='Google Account']", "login_url_part": "accounts.google"},
+    "jobright":   {"url": "https://jobright.ai/jobs/recommend", "logged_in_selector": ["[class*='avatar'], a[href*='/profile'], [class*='job-card'], [class*='jobCard']"], "login_url_part": "/login"},
+    "x":          {"url": "https://x.com/home", "logged_in_selector": ["[data-testid='AppTabBar_Profile_Link'], [data-testid='SideNav_AccountSwitcher_Button']"], "login_url_part": "/i/flow/login"},
+    "linkedin":   {"url": "https://www.linkedin.com/feed/", "logged_in_selector": ["input[placeholder*='Search'], .global-nav__me"], "login_url_part": "/login"},
+    "wellfound":  {"url": "https://wellfound.com/jobs", "logged_in_selector": ["a[href='/jobs/applications'], a[href='/jobs/messages'], a[href*='/candidates/']"], "login_url_part": "/login"},
+    "ycombinator":{"url": "https://www.workatastartup.com/companies", "logged_in_selector": ["a[href='/application'], a[href='/conversations'], a[href*='/inbox']"], "login_url_part": "account.ycombinator.com"},
+    "naukri":     {"url": "https://www.naukri.com/mnjuser/homepage", "logged_in_selector": [".nI-gNb-drawer__icon, .view-profile-wrapper, a[href*='/mnjuser/profile']", "text=Complete profile"], "login_url_part": "/nlogin"},
+    "cutshort":   {"url": "https://cutshort.io/profile/all-jobs", "logged_in_selector": ["a[href*='/profile/'], a[href*='/messages']", "text=Dashboard"], "login_url_part": "redirect_url"},
+    "instahyre":  {"url": "https://www.instahyre.com/candidate/opportunities/", "logged_in_selector": ["a[href*='/logout/'], a[href='/candidate/profile/'], .employer-details"], "login_url_part": "/login"},
+    "hirist":     {"url": "https://www.hirist.tech/jobfeed", "logged_in_selector": ["img[alt*='profile'], [class*='profile'], a[href*='/jobfeed']"], "login_url_part": "/login"},
+    "peerlist":   {"url": "https://peerlist.io/jobs", "logged_in_selector": ["a[href*='/jobs/applied-jobs'], a[href='/inbox']"], "login_url_part": "/login"},
+    "ats":        {"url": "about:blank", "logged_in_selector": ["body"], "login_url_part": "__never__"},
+    "gmail":      {"url": "https://mail.google.com/", "logged_in_selector": ["a[aria-label*='Google Account']"], "login_url_part": "accounts.google"},
 }
 
 
@@ -141,11 +141,16 @@ def is_logged_in(page: Page, platform: str) -> bool:
         return True
     if m["login_url_part"] in page.url:
         return False
-    try:
-        page.wait_for_selector(m["logged_in_selector"], timeout=6000)
-        return True
-    except Exception:
-        pass
+    # Each entry is tried on its own: a CSS list cannot contain a text= engine selector, and mixing them made the whole
+    # check throw, so Cutshort and Naukri could never be seen as logged in however many times you signed in.
+    selectors = m["logged_in_selector"]
+    if isinstance(selectors, str): selectors = [selectors]
+    for i, selector in enumerate(selectors):
+        try:
+            page.wait_for_selector(selector, timeout=6000 if i == 0 else 1500)
+            return True
+        except Exception:
+            continue
     return False
 
 

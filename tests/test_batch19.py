@@ -536,3 +536,32 @@ def cfg_base():
     import yaml, pathlib
     from backend.core import config
     return yaml.safe_load(pathlib.Path(config.CONFIG_PATH).read_text())
+
+
+def test_login_detection_tries_each_selector_separately():
+    """A CSS list cannot contain a text= engine selector; mixing them threw and made the platform look logged out
+    no matter how many times the user signed in."""
+    from backend.core import browser
+    for key, marker in browser.LOGIN_MARKERS.items():
+        selectors = marker["logged_in_selector"]
+        assert isinstance(selectors, list), f"{key}: selectors must be a list"
+        for selector in selectors:
+            engine_parts = [p for p in selector.split(",") if "=" in p and p.strip().split("=")[0].strip() in ("text", "xpath")]
+            assert not (len(selector.split(",")) > 1 and engine_parts), f"{key}: '{selector}' mixes CSS with an engine selector"
+
+    class Page:
+        url = "https://cutshort.io/profile/all-jobs"
+        def __init__(self, matching): self.matching, self.tried = matching, []
+        def wait_for_selector(self, selector, timeout=None):
+            self.tried.append(selector)
+            if selector != self.matching: raise RuntimeError("no match")
+            return object()
+
+    page = Page("text=Dashboard")          # only the engine selector matches, as on the real page
+    assert browser.is_logged_in(page, "cutshort")
+    assert len(page.tried) == 2, "the first selector failing must not stop the check"
+    assert not browser.is_logged_in(Page("nothing at all"), "cutshort")
+
+    class LoginPage(Page):
+        url = "https://cutshort.io/?redirect_url=/profile"
+    assert not browser.is_logged_in(LoginPage("text=Dashboard"), "cutshort")   # a login URL is decisive
