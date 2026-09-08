@@ -282,7 +282,61 @@ def dismiss_overlay(page, log=None) -> bool:
             continue
     try:
         page.keyboard.press("Escape"); page.wait_for_timeout(500)
-        return not overlays.count()
+        if not overlays.count():
+            return True
+    except Exception:
+        pass
+    return _ask_which_button_closes(page, overlay, log)
+
+
+DISMISS_SYSTEM = """You are shown a popup that is covering a page, and every button on it.
+Pick the one that closes the popup and commits the person to nothing.
+Return JSON only: {"index": int|null, "why": str}.
+Rules:
+- Never pick a button that buys, subscribes, upgrades, starts a trial, installs, books a demo, accepts terms, creates an
+  account, or signs up for anything, however it is worded or however prominent it looks.
+- Prefer a plain close, exit, dismiss, later, or no-thanks control.
+- If every button commits to something, return null."""
+
+
+def _ask_which_button_closes(page, overlay, log=None) -> bool:
+    """A popup with no control we recognise: describe it and let the model pick the way out.
+
+    The model only chooses among buttons that are already on the page, and its choice is still checked against the
+    never-click list, so it cannot talk the system into pressing something that costs money.
+    """
+    from backend.core import llm
+    try:
+        buttons = overlay.locator("button, a[role='button'], [role='button']").filter(visible=True)
+        labels = []
+        for i in range(min(buttons.count(), 12)):
+            text = (buttons.nth(i).inner_text(timeout=500) or "").strip() or (buttons.nth(i).get_attribute("aria-label") or "").strip()
+            labels.append(text[:60])
+        labels = [l for l in labels if l]
+        if not labels:
+            return False
+        body = (overlay.inner_text(timeout=1500) or "")[:600]
+    except Exception:
+        return False
+    try:
+        import json as _json
+        out = llm.complete_json("classify", _json.dumps({"popup_text": body, "buttons": labels}), DISMISS_SYSTEM, use_cache=False)
+    except Exception as e:  # noqa: BLE001
+        if log: log("warn", f"could not work out how to close a popup: {str(e)[:70]}")
+        return False
+    index = (out or {}).get("index")
+    if not isinstance(index, int) or not 0 <= index < len(labels):
+        if log: log("warn", f"a popup has no safe way to close it; left alone: {labels[:4]}")
+        return False
+    chosen = labels[index]
+    if any(w in chosen.lower() for w in NEVER_CLICK):        # the model does not get to override this
+        if log: log("warn", f"refused to press '{chosen}' to close a popup")
+        return False
+    try:
+        buttons = overlay.locator("button, a[role='button'], [role='button']").filter(visible=True)
+        buttons.nth(index).click(timeout=2000); page.wait_for_timeout(600)
+        if log: log("info", f"closed a popup via '{chosen}'")
+        return True
     except Exception:
         return False
 

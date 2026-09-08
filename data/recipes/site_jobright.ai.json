@@ -1,0 +1,29 @@
+{
+  "family": "site:jobright.ai",
+  "steps": [
+    {
+      "step_name": "Job Selection",
+      "fields": [
+        {
+          "selector": "#rc_select_0",
+          "kind": "combobox",
+          "question": "JOBS",
+          "answer_key": "free_text"
+        }
+      ],
+      "advance": {
+        "selector": "button:has-text('TRY IT NOW')",
+        "label": "TRY IT NOW"
+      },
+      "advanced_when": {
+        "text_gone": "",
+        "text_appears": ""
+      },
+      "is_final": false,
+      "confirmation": "",
+      "signature": "7f478b89c2fc9dc15d54518a8e844cc6fa767eb47a05b1f716ebba747882ca0a"
+    }
+  ],
+  "version": 2,
+  "saved_at": "2026-09-08 20:31:34"
+}

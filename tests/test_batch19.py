@@ -1179,3 +1179,63 @@ def test_a_closed_posting_is_not_filled_in():
     assert forms.job_closed(Page("69 applicants. This job has closed. Insider Connection @ blcks AI"))
     assert forms.job_closed(Page("We are no longer accepting applications for this role."))
     assert forms.job_closed(Page("Apply for this job. Upload your resume. We are hiring.")) is None
+
+
+def test_llm_fallback_closes_an_unfamiliar_popup_but_cannot_be_talked_into_buying(monkeypatch):
+    """When no known label matches, the model picks the way out; it still cannot press anything that costs money."""
+    from backend.core import browser, llm
+    clicked = []
+
+    class Buttons:
+        def __init__(self, labels): self.labels = labels
+        def filter(self, **k): return self
+        def count(self): return len(self.labels)
+        def nth(self, i):
+            labels, log = self.labels, clicked
+            class B:
+                def inner_text(inner, timeout=None): return labels[i]
+                def get_attribute(inner, name): return ""
+                def click(inner, timeout=None): log.append(labels[i])
+            return B()
+
+    class Overlay:
+        def __init__(self, labels, text): self.labels, self.text = labels, text
+        def locator(self, selector):
+            if "button" in selector: return Buttons(self.labels)
+            class Empty:
+                def filter(inner, **k): return inner
+                def count(inner): return 0
+                @property
+                def first(inner): return inner
+            return Empty()
+        def inner_text(self, timeout=None): return self.text
+
+    class Page:
+        def __init__(self, overlay): self.overlay = overlay
+        def locator(self, selector):
+            overlay = self.overlay
+            class Overlays:
+                def filter(inner, **k): return inner
+                def count(inner): return 1
+                @property
+                def first(inner): return overlay
+            return Overlays() if "role='dialog'" in selector else overlay.locator(selector)
+        def wait_for_timeout(self, ms): pass
+        keyboard = type("K", (), {"press": lambda self, k: None})()
+
+    # an unfamiliar wording the rules do not know
+    overlay = Overlay(["Continue to premium", "Not right now, thanks"], "Unlock more interviews")
+    monkeypatch.setattr(llm, "complete_json", lambda *a, **k: {"index": 1, "why": "declines"})
+    assert browser.dismiss_overlay(Page(overlay))
+    assert clicked == ["Not right now, thanks"]
+    clicked.clear()
+
+    # the model pointing at a purchase is refused
+    monkeypatch.setattr(llm, "complete_json", lambda *a, **k: {"index": 0, "why": "closes it"})
+    assert not browser.dismiss_overlay(Page(Overlay(["Upgrade now", "Continue to premium"], "Unlock more")))
+    assert clicked == []
+
+    # nothing safe at all: left alone rather than guessed
+    monkeypatch.setattr(llm, "complete_json", lambda *a, **k: {"index": None})
+    assert not browser.dismiss_overlay(Page(Overlay(["Accept and continue"], "Terms")))
+    assert clicked == []
