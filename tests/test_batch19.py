@@ -976,3 +976,38 @@ def test_phone_drops_the_country_code_when_the_form_already_asks_for_it():
     assert forms.phone_value(None, El("")) == "+91 9711324698"       # a plain phone box keeps the country code
     assert forms.PHONE_LABEL_RX.search("Phone *") and forms.PHONE_LABEL_RX.search("Mobile Number")
     assert not forms.PHONE_LABEL_RX.search("Full name")
+
+
+def test_a_payments_company_careers_page_is_not_a_checkout():
+    """Stripe's careers page says 'payment method' throughout. Stopping there cost a Forward Deployed application."""
+    from backend.core.apply import forms
+
+    class Page:
+        def __init__(self, body): self.body = body
+        def inner_text(self, sel, timeout=None): return self.body
+        def locator(self, sel):
+            class L:
+                def filter(self, **k): return self
+                def count(self): return 0
+            return L()
+
+    stripe = ("Forward Deployed Engineer, Professional Services. Apply for this job. Resume/CV. Cover letter. "
+              "Stripe builds payment method infrastructure; we process payments and handle billing for millions.")
+    assert forms.payment_wall(Page(stripe)) is None
+    checkout = ("Billed now $29.95. You'll be charged $29.95 and monthly for the remaining months of this "
+                "12-month commitment. Payment Method. I agree to the Terms & Conditions and the renewal terms above.")
+    assert forms.payment_wall(Page(checkout)) == "billed now"
+    # a checkout that also mentions a job still stops: an actual charge outranks the job wording
+    assert forms.payment_wall(Page(checkout + " Apply for this job. Upload your resume.")) is not None
+
+
+def test_choose_option_never_picks_an_untrue_answer(monkeypatch):
+    from backend.core.apply import forms
+    from backend.core import llm
+    monkeypatch.setattr(llm, "complete_json", lambda *a, **k: {"option": "3-5 years", "why": "profile says 3"})
+    assert forms.choose_option("Experience", ["0-2 years", "3-5 years", "6+ years"], "3", lambda *a: None) == "3-5 years"
+    monkeypatch.setattr(llm, "complete_json", lambda *a, **k: {"option": None, "why": "not true of them"})
+    assert forms.choose_option("Clearance", ["Top Secret", "Secret"], None, lambda *a: None) is None
+    monkeypatch.setattr(llm, "complete_json", lambda *a, **k: {"option": "Invented option"})
+    assert forms.choose_option("Anything", ["A", "B"], None, lambda *a: None) is None   # must come from the list
+    assert forms.choose_option("Anything", [], "x", lambda *a: None) is None

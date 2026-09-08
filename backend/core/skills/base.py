@@ -1,6 +1,6 @@
 """BaseSkill: every platform skill subclasses this. Handles browser context, login wait, caps, warning detection, screenshots."""
 from __future__ import annotations
-from backend.core import browser, humanize
+from backend.core import browser, config, humanize
 from backend.core.runner import RunContext
 
 
@@ -25,6 +25,7 @@ class BaseSkill:
         browser.dismiss_overlay(page, self.log)     # upsell popups cover the cards we are trying to read
         w = browser.detect_warning(page)
         if w:
+            browser.show_window(page)          # a challenge needs your eyes on it
             shot = self.ctx.screenshot(page, "warning")
             self.log("human", f"{self.platform}: platform showed '{w}'. Paused. Solve it in the window, then resume.", screenshot=shot)
             import time
@@ -47,6 +48,7 @@ class BaseSkill:
         humanize.set_pacing(None)
         with browser.open_context(self.platform, should_stop=self.ctx.should_stop) as ctx:
             page = ctx.new_page()
+            if (config.load().get("browser") or {}).get("hidden"): browser.hide_window(page)
             if self.needs_login and not browser.ensure_login(page, self.platform, self.ctx.log, should_stop=self.ctx.should_stop, on_ready=lambda: self.ctx.set_status("running")):
                 self.ctx.set_status("paused_for_human")
                 self.log("warn", f"{self.platform}: login not completed; browser remains open")

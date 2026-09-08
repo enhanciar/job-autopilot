@@ -6,7 +6,7 @@ import json, re, time
 from datetime import datetime
 from backend.app.db import session
 from backend.app.models import Application, Job
-from backend.core import config, humanize
+from backend.core import browser, config, humanize
 from backend.core.skills.base import BaseSkill, SkillPaused
 from backend.core.apply import forms
 from backend.core.pipeline import _job_text
@@ -56,6 +56,7 @@ class ATSApplySkill(BaseSkill):
                 self.log("warn", f"browser profile '{profile or f'ats_{n}'}' unavailable: {str(e)[:120]}; {len(pool)} application(s) left for the next run"); return
             with cm_guard(cm, ctx) as ctx:
                 page = ctx.new_page()
+                if (config.load().get("browser") or {}).get("hidden"): browser.hide_window(page)
                 while not self.ctx.should_stop():
                     aid = take_next(pool)
                     if aid is None: break
@@ -163,7 +164,7 @@ class ATSApplySkill(BaseSkill):
         if wall:
             self._fail(aid, f"stopped: this 'apply' leads to a paid subscription page ('{wall}'). Nothing was filled in "
                             f"and no payment was made. Apply on the employer's own site instead.", page, "needs_human")
-            self.log("warn", f"payment page on {company}; the board routes Apply through a paid plan", platform=self.platform)
+            self.log("warn", f"payment page on {company}; the board routes Apply through a paid plan")
             return
         if page.locator("input[type='password']").filter(visible=True).count() and re.search(r"sign in|log in|login", page.inner_text("body", timeout=3000)[:3000], re.I):
             self._fail(aid, f"site requires an account login ({page.url.split('/')[2]}); log in once in the automation window then re-approve", page, "needs_human"); return

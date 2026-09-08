@@ -255,6 +255,41 @@ def fill_text_inputs(page, job_text: str, cover_note: str | None, log, scope=Non
     return unanswered
 
 
+CHOOSE_SYSTEM = """You pick the single best option from a list an employer offers, on behalf of one candidate.
+You are given the question, every option exactly as written, and what the candidate's profile says.
+Return JSON only: {"option": str (copied EXACTLY from the list, or null if none is honest), "why": str (short)}.
+Rules:
+- Never pick an option that would state something untrue about the candidate.
+- Prefer the option that presents the candidate most favourably among those that are true.
+- For a range or band, pick the one the candidate's real figure falls in.
+- If the honest answer is simply absent from the list, return null."""
+
+
+def choose_option(question: str, options: list[str], answer: str | None, log) -> str | None:
+    """When no option matches the canned answer, read the whole list and pick the best honest one.
+
+    The candidate's own facts decide it; the model only maps them onto the employer's wording. Returns an option copied
+    from the list, or None to leave the field for the human."""
+    options = [o for o in options if o and o.strip()][:40]
+    if not options:
+        return None
+    payload = {"question": question, "options": options, "candidate_answer": answer,
+               "profile": profile.as_text()[:2200]}
+    try:
+        import json as _json
+        out = llm.complete_json("classify", _json.dumps(payload), CHOOSE_SYSTEM, use_cache=False)
+    except Exception as e:  # noqa: BLE001
+        log("warn", f"could not choose an option for '{question[:50]}': {str(e)[:80]}")
+        return None
+    picked = (out or {}).get("option")
+    if not isinstance(picked, str):
+        return None
+    exact = next((o for o in options if o.strip() == picked.strip()), None)
+    if exact: return exact
+    loose = next((o for o in options if picked.strip().lower() in o.lower()), None)
+    return loose
+
+
 def fill_selects(page, log, scope=None) -> list[str]:
     root = scope or page
     unanswered = []
@@ -268,12 +303,14 @@ def fill_selects(page, log, scope=None) -> list[str]:
             if not ans or ans == "__LLM__":
                 if el.get_attribute("required") is not None or el.get_attribute("aria-required") == "true": unanswered.append(label)
                 continue
-            opts = el.locator("option").all_inner_texts()
-            pick = next((o for o in opts if ans.lower() in o.lower() or o.lower() in ans.lower()), None)
-            if pick is None and ans.lower().startswith("yes"): pick = next((o for o in opts if o.strip().lower().startswith("yes")), None)
-            if pick is None and ans.lower().startswith("no"): pick = next((o for o in opts if o.strip().lower().startswith("no")), None)
+            opts = [o.strip() for o in el.locator("option").all_inner_texts() if o.strip()]
+            real = [o for o in opts if o.lower() not in ("select...", "select", "-- select --", "choose", "please select", "")]
+            pick = next((o for o in real if ans.lower() in o.lower() or o.lower() in ans.lower()), None)
+            if pick is None and ans.lower().startswith("yes"): pick = next((o for o in real if o.lower().startswith("yes")), None)
+            if pick is None and ans.lower().startswith("no"): pick = next((o for o in real if o.lower().startswith("no")), None)
+            if pick is None: pick = choose_option(label, real, ans, log)     # read the whole list, then decide
             if pick: el.select_option(label=pick)
-            else: unanswered.append(label)
+            else: unanswered.append(f"{label} (options: {', '.join(real[:8])})")
         except Exception as e:  # noqa: BLE001
             log("warn", f"select fill error: {e}")
     return unanswered
@@ -357,6 +394,9 @@ def fill_checkbox_groups(page, log, scope=None) -> list[str]:
                 pick = next((k for k, t in enumerate(texts) if re.search(r"other|international|outside|none of|elsewhere|not listed|open to relocat|willing to relocat|remote", t, re.I)), None)
             if pick is None and "decline" in na:
                 pick = next((k for k, t in enumerate(texts) if re.search(r"decline|prefer not|don.t wish", t, re.I)), None)
+            if pick is None:
+                chosen = choose_option(q, texts, ans, log)
+                if chosen is not None: pick = texts.index(chosen)
             if pick is None:
                 unanswered.append(f"{q[:80]} (choices: {', '.join(texts[:6])})"); continue
             target = opts.nth(pick).locator("label").first if opts.nth(pick).locator("label").count() else opts.nth(pick)
@@ -455,6 +495,9 @@ def fill_custom_dropdowns(page, log, scope=None) -> list[str]:
                 pick = next((k for k, t in enumerate(texts) if re.search(r"other|international|outside|not listed|remote|elsewhere", t, re.I)), None)
             if pick is None and texts and ans.lower().startswith(("yes", "no")):
                 pick = next((k for k, t in enumerate(texts) if t.lower().startswith(ans[:2].lower())), None)
+            if pick is None and texts:
+                chosen = choose_option(label, texts, ans, log)
+                if chosen is not None: pick = texts.index(chosen)
             if pick is None:
                 page.keyboard.press("Escape"); unanswered.append(f"{label[:80]} (options: {', '.join(texts[:6])})"); continue
             humanize.human_click(page, opts.nth(pick)); page.wait_for_timeout(600)
@@ -616,9 +659,9 @@ def upload_resume(page, resume_path: str, log, scope=None) -> bool:
             # prefer the input that sits inside a resume/CV block when several file inputs exist
             for i in range(files.count()):
                 nm = ((files.nth(i).get_attribute("name") or "") + (files.nth(i).get_attribute("id") or "") +
-                      (files.nth(i).get_attribute("aria-label") or "") + (files.nth(i).get_attribute("accept") or "")).lower()
-                if re.search(r"resume|cv\b|pdf", nm): target = files.nth(i); break
-            target.set_input_files(full)
+                      (files.nth(i).get_attribute("aria-label") or "")).lower()
+                if re.search(r"resume|cv\b", nm): target = files.nth(i); break
+            target.set_input_files(full, timeout=8000)
             page.wait_for_timeout(2500)
             try:
                 body = page.inner_text("body", timeout=2000).lower()
@@ -670,6 +713,14 @@ PAYMENT_CONTROLS = ("apple pay", "google pay", "pay now", "subscribe", "start fr
                     "complete purchase", "place order")
 
 
+JOB_FORM_MARKERS = ("apply for this job", "submit application", "resume/cv", "attach resume", "upload your resume",
+                    "cover letter", "job description", "about the role", "equal opportunity", "linkedin profile",
+                    "work authorization", "years of experience")
+CHECKOUT_MARKERS = ("billed now", "you'll be charged", "you will be charged", "auto-renews", "auto renews",
+                    "renewal terms", "subscription period", "12-month commitment", "monthly for the remaining",
+                    "start your subscription", "order summary", "card number", "cardholder", "billing address")
+
+
 def payment_wall(page) -> str | None:
     """A job application never asks for money. Some boards route 'Apply' through a paid-subscription funnel, so any page
     showing money, a plan or a payment control stops the application instead of being filled in.
@@ -677,6 +728,13 @@ def payment_wall(page) -> str | None:
     try:
         body = page.inner_text("body", timeout=2500).lower()
     except Exception:
+        return None
+    # A payments company's careers page says "payment method" all over it. What marks a checkout is a charge being set
+    # up, so an application form is only stopped when the page is asking the candidate for money.
+    checkout = [p for p in CHECKOUT_MARKERS if p in body]
+    if checkout:
+        return checkout[0]
+    if any(m in body for m in JOB_FORM_MARKERS):
         return None
     hits = [p for p in PAYMENT_SIGNALS if p in body]
     if len(hits) >= 2:

@@ -92,8 +92,12 @@ def open_context(platform: str, headless: bool = False, profile: str | None = No
                 executable = config.env("CHROME_EXECUTABLE", "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome")
                 directory = config.PROFILES / "shared"
                 directory.mkdir(parents=True, exist_ok=True)
+                # Hidden means off-screen, not headless: the same real Chrome with your real logins, just not in your
+                # face. Headless would lose those sessions and is what bot detection looks for first.
+                hidden = bool((config.load().get("browser") or {}).get("hidden"))
+                window = ["--window-position=-32000,-32000", "--window-size=1600,1200"] if hidden else ["--start-maximized"]
                 proc = subprocess.Popen([executable, "--remote-debugging-address=127.0.0.1", "--remote-debugging-port=9223",
-                    f"--user-data-dir={directory}", "--no-first-run", "--start-maximized"],
+                    f"--user-data-dir={directory}", "--no-first-run", *window],
                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
                 for _ in range(40):
                     if should_stop(): raise InterruptedError("Browser launch cancelled")
@@ -174,6 +178,7 @@ def ensure_login(page: Page, platform: str, log, wait_minutes: int = 15, should_
         _set_session(platform, True)
         on_ready()
         return True
+    show_window(page)          # whatever the hidden setting says, you cannot sign in to a window you cannot see
     log("human", f"{platform}: please log in in the open Chrome window. Waiting up to {wait_minutes} min.", platform=platform)
     _set_session(platform, False, "waiting for user login")
     deadline = time.time() + wait_minutes * 60
@@ -190,6 +195,30 @@ def ensure_login(page: Page, platform: str, log, wait_minutes: int = 15, should_
             pass
     _set_session(platform, False, "login timed out")
     return False
+
+
+def show_window(page) -> bool:
+    """Move the automation window back on screen. Used whenever the run needs you to look at or do something."""
+    try:
+        cdp = page.context.new_cdp_session(page)
+        target = cdp.send("Browser.getWindowForTarget")
+        cdp.send("Browser.setWindowBounds", {"windowId": target["windowId"],
+                                             "bounds": {"left": 60, "top": 60, "width": 1500, "height": 1000, "windowState": "normal"}})
+        return True
+    except Exception:
+        return False
+
+
+def hide_window(page) -> bool:
+    """Put the automation window back off screen once no human step is pending."""
+    try:
+        cdp = page.context.new_cdp_session(page)
+        target = cdp.send("Browser.getWindowForTarget")
+        cdp.send("Browser.setWindowBounds", {"windowId": target["windowId"],
+                                             "bounds": {"left": -32000, "top": -32000, "width": 1600, "height": 1200}})
+        return True
+    except Exception:
+        return False
 
 
 def _set_session(platform: str, ok: bool, note: str | None = None):

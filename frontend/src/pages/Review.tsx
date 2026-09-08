@@ -70,6 +70,15 @@ export default function Review() {
                 fact-check: {(a.answers as {factcheck: {ok?: boolean}}).factcheck.ok ? 'all claims supported by profile' : `${((a.answers as {factcheck: {violations?: unknown[]}}).factcheck.violations ?? []).length} unsupported claim(s) remain, read before approving`}</div>)}
             {a.answers && <details className="text-xs text-zinc-400"><summary className="cursor-pointer">Screening answers</summary><pre className="mt-1 whitespace-pre-wrap">{JSON.stringify(a.answers, null, 2)}</pre></details>}
             {a.error && <div className="text-xs text-rose-300">{a.error}</div>}
+            {a.status === 'needs_human' && (a.screenshot_after || a.screenshot_before) && (
+              <details open className="text-xs">
+                <summary className="cursor-pointer text-zinc-400">What it was looking at when it stopped</summary>
+                <a href={artifactUrl((a.screenshot_after || a.screenshot_before)!)} target="_blank" rel="noreferrer">
+                  <img className="mt-2 rounded border border-zinc-700 max-h-[28rem] w-auto" alt="the page where it stopped"
+                       src={artifactUrl((a.screenshot_after || a.screenshot_before)!)} />
+                </a>
+                <div className="text-zinc-500 mt-1">Click to open the full-page capture.</div>
+              </details>)}
             <div className="flex flex-wrap gap-2">
               <ApplicationActions key={`${a.id}-${a.status}`} app={a} onSaved={refresh} />
               {a.url && <a className="btn btn-sm" href={a.url} target="_blank" rel="noreferrer"><ExternalLink className="size-3.5" /> Posting</a>}
