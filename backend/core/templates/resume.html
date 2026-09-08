@@ -38,7 +38,12 @@
 {% if earlier %}<div class="meta">Earlier: {{ earlier | join("; ") }}</div>{% endif %}
 
 {% if projects %}<h2>Projects</h2>
-<ul>{% for pr in projects %}<li><b>{{ pr.name }}</b> — {{ pr.summary }}</li>{% endfor %}</ul>{% endif %}
+{% for pr in projects %}
+<div class="row"><span class="role">{{ pr.name }}</span>{% if pr.context %}<span class="meta">{{ pr.context }}</span>{% endif %}</div>
+{% if pr.stack %}<div class="meta">{{ pr.stack | join(" · ") }}</div>{% endif %}
+{% if pr.bullets %}<ul>{% for b in pr.bullets %}<li>{{ b }}</li>{% endfor %}</ul>
+{% else %}<ul><li>{{ pr.summary }}</li></ul>{% endif %}
+{% endfor %}{% endif %}
 
 <h2>Education</h2>
 {% for ed in p.education %}<div class="row"><span>{{ ed.degree }}, {{ ed.school }}</span><span class="meta">{{ ed.start }}{% if ed.end %}–{{ ed.end }}{% endif %}{% if ed.note %} · {{ ed.note }}{% endif %}</span></div>{% endfor %}

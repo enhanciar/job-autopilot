@@ -55,8 +55,13 @@ def build_context(overlay: dict | None = None) -> dict:
     for pr in p.get("projects", []):
         summary = re.sub(r"\s*\([^)]*\bTODO\b[^)]*\)|\s*;?[^;.()]*\bTODO\b[^;.()]*", "", str(pr.get("summary") or ""), flags=re.I)
         summary = re.sub(r"\s+", " ", summary).strip(" ;,.")
-        if pr.get("name"):
-            projects.append({**pr, "summary": summary})
+        if not pr.get("name"):
+            continue
+        entry = {**pr, "summary": summary}
+        cap = o.get("_max_bullets_project")
+        if cap and entry.get("bullets"):
+            entry["bullets"] = entry["bullets"][:cap]
+        projects.append(entry)
     summary_text = (o.get("summary") or p["positioning"]["summary"]).strip()
     if o.get("_short_summary"):
         sentences = re.split(r"(?<=[.!?])\s+", summary_text)
@@ -78,8 +83,10 @@ def _fit_variants(overlay: dict | None):
     yield o, {}
     for cut in (3, 2):
         variant = dict(o); variant["_max_bullets_old"] = 1; variant["_max_bullets_current"] = cut
-        yield variant, {"trimmed": f"current-role bullets to {cut}"}
-    variant = dict(o); variant["_max_bullets_old"] = 1; variant["_max_bullets_current"] = 2; variant["_short_summary"] = True
+        variant["_max_bullets_project"] = cut
+        yield variant, {"trimmed": f"role and project bullets to {cut}"}
+    variant = dict(o); variant["_max_bullets_old"] = 1; variant["_max_bullets_current"] = 2
+    variant["_max_bullets_project"] = 1; variant["_short_summary"] = True
     yield variant, {"trimmed": "bullets and summary"}
 
 
