@@ -32,6 +32,13 @@ llm:
       tailor: claude-sonnet-5
       outreach: claude-sonnet-5
       profile_extract: claude-sonnet-5
+# Rolling seven-day ceilings. LinkedIn allows roughly 100 invitations a week on a free or Premium account and counts
+# them from your first invitation of the week, so a daily cap alone is not enough to stay inside it.
+weekly_caps:
+  linkedin:
+    connects: 80
+    dms: 100
+
 humanize:
   action_delay_s:
   - 2
@@ -52,7 +59,7 @@ humanize:
 caps:
   linkedin:
     easy_apply: 15
-    connects: 40
+    connects: 15
     dms: 20
     searches: 100
   wellfound:

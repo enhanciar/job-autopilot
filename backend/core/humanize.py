@@ -150,14 +150,29 @@ def caps_snapshot() -> dict:
     return out
 
 
+def weekly_cap_for(platform: str, action: str):
+    """A rolling seven-day ceiling, for platforms that count that way.
+
+    LinkedIn allows roughly 100 invitations per rolling week on a free or Premium account, and counts them from your
+    first invitation of the week rather than from Monday. A daily cap alone cannot express that: 40 a day is 280 a week,
+    which trips the limit in under three days and risks a restriction on the account you actually need.
+    """
+    caps = config.load().get("weekly_caps", {}).get(platform, {})
+    return caps.get(action)
+
+
 def take(platform: str, action: str, ref: str | None = None) -> bool:
-    """Atomically reserve an attempt, across threads and worker processes."""
+    """Atomically reserve an attempt, across threads and worker processes, against both the daily and weekly ceilings."""
     from sqlalchemy import text
-    start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
-    cap = cap_for(platform, action)
+    from datetime import timedelta
+    now = datetime.utcnow()
+    start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    week_start = now - timedelta(days=7)
+    cap, weekly = cap_for(platform, action), weekly_cap_for(platform, action)
     with session() as db:
         db.execute(text('BEGIN IMMEDIATE'))
-        used = db.query(ActionLog).filter(ActionLog.platform == platform, ActionLog.action == action, ActionLog.ts >= start).count()
-        if cap is not None and used >= cap: return False
+        rows = db.query(ActionLog).filter(ActionLog.platform == platform, ActionLog.action == action)
+        if cap is not None and rows.filter(ActionLog.ts >= start).count() >= cap: return False
+        if weekly is not None and rows.filter(ActionLog.ts >= week_start).count() >= weekly: return False
         db.add(ActionLog(platform=platform, action=action, ref=ref))
     return True

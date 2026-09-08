@@ -30,8 +30,16 @@ def validate(cfg: dict) -> dict:
     if type(cfg.get("target_per_day", 100)) is not int or cfg.get("target_per_day", 100) < 1: raise ValueError("target_per_day must be positive")
     for key in ("caps", "humanize", "llm", "filters", "schedule", "seed_companies"):
         if not isinstance(cfg.get(key, {}), dict): raise ValueError(f"{key} must be an object")
-    for platform, caps in cfg.get("caps", {}).items():
-        if not isinstance(caps, dict) or any(type(v) is not int or v < 0 for v in caps.values()): raise ValueError(f"Invalid caps for {platform}")
+    for key in ("caps", "weekly_caps"):
+        section = cfg.get(key, {})
+        if not isinstance(section, dict): raise ValueError(f"{key} must be an object")
+        for platform, caps in section.items():
+            if not isinstance(caps, dict) or any(type(v) is not int or v < 0 for v in caps.values()): raise ValueError(f"Invalid {key} for {platform}")
+    for platform, weekly in cfg.get("weekly_caps", {}).items():
+        for action, limit in weekly.items():
+            daily = cfg.get("caps", {}).get(platform, {}).get(action)
+            if daily is not None and daily > limit:
+                raise ValueError(f"caps.{platform}.{action} ({daily}/day) exceeds weekly_caps.{platform}.{action} ({limit}/week)")
     providers = {"claude-cli", "gemini", "openrouter", "ollama"}
     llm = cfg.get("llm", {})
     if llm.get("default", "claude-cli") not in providers or any(v not in providers for v in llm.get("routes", {}).values()): raise ValueError("Unknown LLM provider")

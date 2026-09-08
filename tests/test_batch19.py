@@ -873,3 +873,37 @@ def test_emails_are_drafted_per_person_and_only_with_a_real_address(monkeypatch)
         emailed = {db.get(Contact, o.contact_id).name for o in db.query(Outreach).filter_by(channel="email").all()}
         assert emailed == {"Ann", "Bob"}, emailed        # no address, or a guessed one, means no email row
         assert all(o.status == "pending_review" for o in db.query(Outreach).filter_by(channel="email").all())
+
+
+def test_weekly_cap_stops_sending_before_linkedin_does(monkeypatch):
+    """LinkedIn allows ~100 invitations per rolling week and counts from your first one, so a daily cap alone lets the
+    system trip the real limit in three days."""
+    from datetime import datetime, timedelta
+    from backend.app.models import ActionLog
+    from backend.core import humanize, config
+    monkeypatch.setattr(config, "load", lambda: {"caps": {"linkedin": {"connects": 15}},
+                                                 "weekly_caps": {"linkedin": {"connects": 20}},
+                                                 "humanize": {}})
+    # yesterday's sends still count against the rolling week
+    with session() as db:
+        for i in range(18):
+            db.add(ActionLog(platform="linkedin", action="connects", ts=datetime.utcnow() - timedelta(days=2)))
+    assert humanize.take("linkedin", "connects", "a")      # 19
+    assert humanize.take("linkedin", "connects", "b")      # 20
+    assert not humanize.take("linkedin", "connects", "c"), "the weekly ceiling must stop it"
+    # an action from more than seven days ago has rolled off
+    with session() as db:
+        old = db.query(ActionLog).limit(5).all()
+        for row in old: row.ts = datetime.utcnow() - timedelta(days=9)
+    assert humanize.take("linkedin", "connects", "d")
+
+
+def test_config_rejects_a_daily_cap_larger_than_its_weekly_cap():
+    from backend.core import config
+    cfg = config.load()
+    cfg["caps"]["linkedin"]["connects"] = 100          # a day's cap above the whole week's is nonsense
+    cfg["weekly_caps"]["linkedin"]["connects"] = 80
+    with pytest.raises(ValueError, match="exceeds weekly"):
+        config.validate(cfg)
+    cfg["caps"]["linkedin"]["connects"] = 15
+    assert config.validate(cfg)
