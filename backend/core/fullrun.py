@@ -34,15 +34,20 @@ def _platform_keys() -> list[str]:
             and p["key"] not in ("ats_apply", "linkedin_people", "x_outreach")]
 
 
-def _run_stage(ctx: RunContext, label: str, fn, **kw):
-    if ctx.should_stop() or ctx.is_paused():
+def _run_stage(ctx: RunContext, label: str, fn, browser_stage: bool = False, **kw):
+    """Run one stage. A run paused for a human still holds the browser, so browser stages wait, but scoring and
+    preparing touch nothing but the database and the model: an expired login on the last platform must not throw away
+    the work of the seventeen before it."""
+    if ctx.should_stop():
+        return False
+    if browser_stage and ctx.is_paused():
         return False
     if ctx.checkpoint_done(label): return True
     ctx.log("info", f"▶ {label}")
     try:
         before = ctx.stats.get("failed", 0)
         fn(ctx, **kw)
-        if ctx.should_stop() or ctx.is_paused() or ctx.stats.get("failed", 0) > before: return False
+        if ctx.should_stop() or (browser_stage and ctx.is_paused()) or ctx.stats.get("failed", 0) > before: return False
         ctx.checkpoint(label)
         return True
     except Exception as e:  # noqa: BLE001
@@ -65,10 +70,10 @@ def _discover(ctx: RunContext, key: str):
 def platform(ctx: RunContext, name: str, apply: bool = False, score_limit: int = 400, prepare_limit: int = 120):
     """Full chain for one platform."""
     ctx.log("info", f"=== full run: {name} ===")
-    if not _run_stage(ctx, f"discover · {name}", lambda c: _discover(c, name)): return
+    if not _run_stage(ctx, f"discover · {name}", lambda c: _discover(c, name), browser_stage=True): return
     if name == "linkedin":
         if not _run_stage(ctx, "hydrate · linkedin descriptions",
-                   lambda c: registry.SKILLS["linkedin"](c).run(mode="hydrate", limit=200)): return
+                   lambda c: registry.SKILLS["linkedin"](c).run(mode="hydrate", limit=200), browser_stage=True): return
     from backend.core.hydration import hydrate
     if not _run_stage(ctx, "hydrate · employer descriptions", hydrate, sources=[name]): return
     if not _run_stage(ctx, "score", pipeline.score, limit=score_limit, sources=[name]): return
@@ -98,20 +103,24 @@ def all_platforms(ctx: RunContext, apply: bool = False, only: list[str] | None =
     ctx.log("info", f"=== full run: {len(keys)} platform(s) → {', '.join(keys)} ===")
     completed = []
     for k in keys:
-        if ctx.should_stop() or ctx.is_paused(): break
-        if _run_stage(ctx, f"discover · {k}", lambda c, k=k: _discover(c, k)): completed.append(k)
-    if ctx.should_stop() or ctx.is_paused(): return
+        if ctx.should_stop(): break
+        if ctx.is_paused():
+            ctx.log("warn", f"paused for a human step; the remaining platform(s) were skipped, but everything already "
+                            f"collected is still scored and prepared below")
+            break
+        if _run_stage(ctx, f"discover · {k}", lambda c, k=k: _discover(c, k), browser_stage=True): completed.append(k)
+    if ctx.should_stop(): return
     keys = completed
     if not keys: return
     scope = ",".join(sorted(keys))
     if "linkedin" in keys:
-        if not _run_stage(ctx, "hydrate · linkedin descriptions",
-                   lambda c: registry.SKILLS["linkedin"](c).run(mode="hydrate", limit=300)): return
+        _run_stage(ctx, "hydrate · linkedin descriptions",
+                   lambda c: registry.SKILLS["linkedin"](c).run(mode="hydrate", limit=300), browser_stage=True)
     from backend.core.hydration import hydrate
     if not _run_stage(ctx, f"hydrate · employer descriptions · {scope}", hydrate, sources=keys): return
     if not _run_stage(ctx, f"score · {scope}", pipeline.score, limit=800, sources=keys): return
     if not _run_stage(ctx, f"prepare · tailor + fact-check · {scope}", pipeline.prepare, limit=200, sources=keys): return
-    if apply and not ctx.should_stop():
+    if apply and not ctx.should_stop() and not ctx.is_paused():
         for k in keys:
             if ctx.should_stop() or ctx.is_paused(): break
             _apply_for(ctx, k)

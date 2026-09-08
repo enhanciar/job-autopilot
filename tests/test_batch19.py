@@ -619,3 +619,59 @@ def test_popups_are_closed_but_never_bought():
     page = Page({"aria-label='Close'": Button("Upgrade to Turbo")})
     browser.dismiss_overlay(page)
     assert clicked == []
+
+
+def test_a_login_pause_does_not_discard_the_scoring_of_everything_collected():
+    """One expired login on the last platform must not throw away the work of the ones before it: scoring and
+    preparing touch no browser, so they still run over whatever was collected."""
+    from backend.core import fullrun, registry, pipeline
+    from backend.core.runner import RunContext
+    ran = []
+    ctx = RunContext("fullrun", "test")
+
+    def collector(name):
+        def go(c):
+            ran.append(f"discover:{name}")
+            if name == "cutshort": c.set_status("paused_for_human")     # login window opened, nobody signed in
+        return go
+
+    original = dict(registry.COLLECTORS)
+    registry.COLLECTORS.clear()
+    registry.COLLECTORS.update({"greenhouse": collector("greenhouse"), "cutshort": collector("cutshort"), "naukri": collector("naukri")})
+    try:
+        import backend.core.hydration as hydration
+        real_score, real_prepare, real_hydrate = pipeline.score, pipeline.prepare, hydration.hydrate
+        pipeline.score = lambda c, **k: ran.append(f"score:{sorted(k.get('sources') or [])}")
+        pipeline.prepare = lambda c, **k: ran.append("prepare")
+        hydration.hydrate = lambda c, **k: ran.append("hydrate")
+        try:
+            fullrun.all_platforms(ctx, apply=False, only=["greenhouse", "cutshort", "naukri"])
+        finally:
+            pipeline.score, pipeline.prepare, hydration.hydrate = real_score, real_prepare, real_hydrate
+    finally:
+        registry.COLLECTORS.clear(); registry.COLLECTORS.update(original)
+
+    assert "discover:greenhouse" in ran
+    assert "discover:naukri" not in ran            # the browser is held for the human, so later platforms wait
+    assert "score:['cutshort', 'greenhouse']" in ran or "score:['greenhouse']" in ran
+    assert "prepare" in ran, "preparing must still run over what was collected"
+
+
+def test_user_stop_really_stops_everything():
+    from backend.core import fullrun, registry, pipeline
+    from backend.core.runner import RunContext
+    ran = []
+    ctx = RunContext("fullrun", "test")
+    original = dict(registry.COLLECTORS)
+    registry.COLLECTORS.clear()
+    registry.COLLECTORS.update({"greenhouse": lambda c: (ran.append("discover"), ctx.stop_flag.set())})
+    try:
+        real_score = pipeline.score
+        pipeline.score = lambda c, **k: ran.append("score")
+        try:
+            fullrun.all_platforms(ctx, apply=False, only=["greenhouse"])
+        finally:
+            pipeline.score = real_score
+    finally:
+        registry.COLLECTORS.clear(); registry.COLLECTORS.update(original)
+    assert ran == ["discover"], "pressing Stop must not start a new stage"
