@@ -19,9 +19,10 @@ class BaseSkill:
         self.ctx.log(level, msg, platform=self.platform, **kw)
 
     def guard(self, page):
-        """Call between actions: stop flag, warning banners, business hours."""
+        """Call between actions: stop flag, promotional popups, warning banners."""
         if self.ctx.should_stop():
             raise SkillPaused("stopped by user")
+        browser.dismiss_overlay(page, self.log)     # upsell popups cover the cards we are trying to read
         w = browser.detect_warning(page)
         if w:
             shot = self.ctx.screenshot(page, "warning")

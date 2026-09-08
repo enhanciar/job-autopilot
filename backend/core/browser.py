@@ -196,6 +196,58 @@ def _set_session(platform: str, ok: bool, note: str | None = None):
         ps.note = note
 
 
+# Buttons that cost money or change an account. A promotional overlay is closed, never accepted.
+NEVER_CLICK = ("unlock", "upgrade", "subscribe", "buy", "checkout", "start trial", "start free trial", "get turbo",
+               "claim offer", "redeem", "continue to payment", "pay ", "add card", "enable autofill", "install")
+DISMISS_LABELS = ("maybe later", "no thanks", "no, thanks", "not now", "skip for now", "skip", "dismiss", "close",
+                  "remind me later", "continue for free", "stay on free")
+DISMISS_SELECTORS = ("[aria-label='Close']", "[aria-label='close']", "[aria-label='Dismiss']", "button[class*='close' i]",
+                     "[data-testid*='close' i]", "[class*='modal' i] [class*='close' i]", "[role='dialog'] button[class*='close' i]")
+
+
+def dismiss_overlay(page, log=None) -> bool:
+    """Close a promotional or upsell popup so it stops covering the page.
+
+    Only closes: the X, an explicit 'maybe later' style button, then Escape. Anything that would buy, upgrade, subscribe
+    or install is never pressed, however prominent the site makes it.
+    """
+    try:
+        overlays = page.locator("[role='dialog'], [class*='modal' i], [class*='popup' i], [class*='overlay' i]").filter(visible=True)
+        if not overlays.count():
+            return False
+    except Exception:
+        return False
+    overlay = overlays.first
+    for selector in DISMISS_SELECTORS:
+        try:
+            button = overlay.locator(selector).filter(visible=True).first
+            if not button.count():
+                button = page.locator(selector).filter(visible=True).first
+            if button.count():
+                label = (button.inner_text(timeout=500) or "") + (button.get_attribute("aria-label") or "")
+                if any(w in label.lower() for w in NEVER_CLICK):
+                    continue
+                button.click(timeout=2000); page.wait_for_timeout(600)
+                if log: log("info", "closed a popup")
+                return True
+        except Exception:
+            continue
+    for label in DISMISS_LABELS:
+        try:
+            button = overlay.locator(f"button:has-text('{label}'), a:has-text('{label}')").filter(visible=True).first
+            if button.count() and not any(w in (button.inner_text(timeout=500) or "").lower() for w in NEVER_CLICK):
+                button.click(timeout=2000); page.wait_for_timeout(600)
+                if log: log("info", f"closed a popup via '{label}'")
+                return True
+        except Exception:
+            continue
+    try:
+        page.keyboard.press("Escape"); page.wait_for_timeout(500)
+        return not overlays.count()
+    except Exception:
+        return False
+
+
 WARNING_TEXTS = ["unusual activity", "verify you're human", "security check", "we've restricted", "captcha", "are you a robot", "temporarily restricted"]
 
 

@@ -565,3 +565,57 @@ def test_login_detection_tries_each_selector_separately():
     class LoginPage(Page):
         url = "https://cutshort.io/?redirect_url=/profile"
     assert not browser.is_logged_in(LoginPage("text=Dashboard"), "cutshort")   # a login URL is decisive
+
+
+def test_popups_are_closed_but_never_bought():
+    """Upsell popups cover the results. Close them; never press the button that costs money."""
+    from backend.core import browser
+    clicked = []
+
+    class Button:
+        def __init__(self, label, present=True): self.label, self.present = label, present
+        def filter(self, **k): return self
+        def count(self): return 1 if self.present else 0
+        @property
+        def first(self): return self
+        def inner_text(self, timeout=None): return self.label
+        def get_attribute(self, name): return ""
+        def click(self, timeout=None): clicked.append(self.label)
+
+    class Overlay:
+        def __init__(self, buttons): self.buttons = buttons
+        def locator(self, selector):
+            for key, button in self.buttons.items():
+                if key in selector: return button
+            return Button("", present=False)
+
+    class Page:
+        def __init__(self, buttons): self.overlay = Overlay(buttons); self.keys = []
+        def locator(self, selector):
+            if "role='dialog'" in selector: 
+                page = self
+                class Overlays:
+                    def filter(self, **k): return self
+                    def count(self): return 1
+                    @property
+                    def first(self): return page.overlay
+                return Overlays()
+            return self.overlay.locator(selector)
+        def wait_for_timeout(self, ms): pass
+        keyboard = type("K", (), {"press": lambda self, k: None})()
+
+    # a close control is used
+    page = Page({"aria-label='Close'": Button("")})
+    assert browser.dismiss_overlay(page) and clicked == [""]
+    clicked.clear()
+
+    # a close control whose label is really a purchase is skipped, and 'maybe later' is used instead
+    page = Page({"aria-label='Close'": Button("Unlock Your Offer Now"), "maybe later": Button("Maybe later")})
+    assert browser.dismiss_overlay(page)
+    assert clicked == ["Maybe later"], clicked
+    clicked.clear()
+
+    # nothing safe to press: Escape, and no purchase is made
+    page = Page({"aria-label='Close'": Button("Upgrade to Turbo")})
+    browser.dismiss_overlay(page)
+    assert clicked == []

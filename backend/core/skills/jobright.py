@@ -8,7 +8,7 @@ handles the actual submission — the same hand-off Peerlist uses.
 from __future__ import annotations
 import re
 import time
-from backend.core import humanize
+from backend.core import browser, humanize
 from backend.core.skills.base import BaseSkill
 from backend.core.skills import platform_common as pc
 
@@ -31,8 +31,10 @@ class JobrightSkill(BaseSkill):
         for u in urls:
             if self.ctx.should_stop(): break
             if not self.take("searches", u): break
-            page.goto(u, wait_until="domcontentloaded"); humanize.pause(); self.guard(page)
+            page.goto(u, wait_until="domcontentloaded"); humanize.pause()
             page.wait_for_timeout(4000)
+            self.guard(page)                       # Jobright shows a paid-plan popup over the results
+            browser.dismiss_overlay(page, self.log)
             for _ in range(5):
                 humanize.human_scroll(page, 1800); page.wait_for_timeout(1200)
             items = self._cards(page)
