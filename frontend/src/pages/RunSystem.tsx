@@ -3,7 +3,7 @@ import WorkerHealth from "../components/WorkerHealth"
 import { artifactUrl } from '../api'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Play, Square, Lock, CheckSquare, ListChecks } from 'lucide-react'
+import { Play, Square, Lock, LockOpen, CheckSquare, ListChecks } from 'lucide-react'
 import { api, usePoll, type Event, type Run } from '../api'
 import { Page, Badge, Empty } from '../components/ui'
 
@@ -74,6 +74,8 @@ function EventLog({ events, live }: { events: Event[]; live: boolean }) {
 
 export default function RunSystem() {
   const { data: platforms, err: platErr } = usePoll(api.fullRunPlatforms, 120000)
+  const { data: sessions } = usePoll(api.platforms, 30000)
+  const signedIn = (key: string) => sessions?.find(s => s.key === key)?.logged_in ?? null
   const { data: runs } = usePoll(() => api.runs(40), 3000)
 
   const [sel, setSel] = useState<string[]>([])
@@ -142,12 +144,19 @@ export default function RunSystem() {
                 className={`flex items-center gap-2 rounded-lg border px-2.5 py-2 text-left text-sm transition ${on ? 'border-emerald-600 bg-emerald-600/15 text-white' : 'border-zinc-800 bg-zinc-950/50 text-zinc-300 hover:bg-zinc-900'}`}>
                 <span className={`size-3.5 shrink-0 rounded border ${on ? 'bg-emerald-500 border-emerald-500' : 'border-zinc-600'}`} />
                 <span className="truncate">{p.name}</span>
-                {p.needs_login && <Lock className="size-3.5 ml-auto shrink-0 text-amber-400" />}
+                {p.needs_login && (signedIn(p.key) === false
+                  ? <Lock className="size-3.5 ml-auto shrink-0 text-rose-400" aria-label="signed out" />
+                  : <LockOpen className={`size-3.5 ml-auto shrink-0 ${signedIn(p.key) ? 'text-emerald-500/70' : 'text-zinc-600'}`} aria-label={signedIn(p.key) ? 'signed in' : 'sign-in state unknown'} />)}
               </button>
             )
           })}
         </div>
-        <div className="text-[11px] text-zinc-500 flex items-center gap-1.5"><Lock className="size-3 text-amber-400" /> needs a browser login — it will take over the shared Chrome profile.</div>
+        <div className="text-[11px] text-zinc-500 flex flex-wrap items-center gap-x-3 gap-y-1">
+          <span className="flex items-center gap-1.5"><LockOpen className="size-3 text-emerald-500/70" /> signed in</span>
+          <span className="flex items-center gap-1.5"><Lock className="size-3 text-rose-400" /> signed out — open Platforms and press Log in</span>
+          <span className="flex items-center gap-1.5"><LockOpen className="size-3 text-zinc-600" /> not checked yet</span>
+          <span>These platforms use the shared automation Chrome, one run at a time.</span>
+        </div>
 
         <div className="border-t border-zinc-800 pt-3 flex flex-wrap items-center justify-between gap-4">
           <label className="flex items-start gap-2.5 cursor-pointer select-none">
