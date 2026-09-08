@@ -65,6 +65,8 @@ def validate(cfg: dict) -> dict:
     if not isinstance(hours, dict): raise ValueError("business_hours must be an object")
     for key in ("start", "end"):
         if key in hours and (type(hours[key]) is not int or not 0 <= hours[key] <= 23): raise ValueError(f"business_hours.{key} must be an hour 0–23")
+    pages = (cfg.get("resume") or {}).get("max_pages", 2)
+    if type(pages) is not int or not 1 <= pages <= 3: raise ValueError("resume.max_pages must be 1, 2 or 3")
     browser = cfg.get("browser") or {}
     if not isinstance(browser, dict) or any(k in browser and type(browser[k]) is not bool for k in ("headless",)): raise ValueError("browser options must be booleans")
     return cfg

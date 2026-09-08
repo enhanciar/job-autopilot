@@ -58,7 +58,7 @@ def retention(days=30):
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action',choices=['backup','report','restore','retention','relink-documents','route-email','link-apply-urls','recheck-answers','clear-stuck'])
+    parser.add_argument('action',choices=['backup','report','restore','retention','relink-documents','route-email','link-apply-urls','recheck-answers','clear-stuck','rerender-resumes'])
     parser.add_argument('--apply',action='store_true',help='write the change; without it the command only reports')
     parser.add_argument('--statuses',default='needs_human,failed',help='clear-stuck only: which application statuses to clear')
     parser.add_argument('--path',type=Path); parser.add_argument('--destination',type=Path)
@@ -69,6 +69,10 @@ def main():
     elif args.action=='restore':
         if not args.path or not args.destination: parser.error('--path and --destination are required')
         restore(args.path,args.destination);print('Restored to new destination')
+    elif args.action=='rerender-resumes':
+        result=rerender_resumes(args.apply)
+        print(json.dumps({k:len(v) for k,v in result.items()},indent=2))
+        if not args.apply: print('Nothing was written. Re-run with --apply.')
     elif args.action=='clear-stuck':
         if args.apply: print('backup:', backup(config.DATA/'backups'/f'before-clear-{datetime.now():%Y%m%d-%H%M%S}.db'))
         result=clear_stuck(args.apply, tuple(x.strip() for x in args.statuses.split(',') if x.strip()))
@@ -240,6 +244,29 @@ def clear_stuck(apply: bool = False, statuses=("needs_human", "failed")) -> dict
                                             f" | cleared {datetime.utcnow():%Y-%m-%d}: " +
                                             ("application may already have reached this employer" if maybe_sent else "stuck application removed at your request"))[:2000]
                 db.delete(a)
+    return report
+
+
+def rerender_resumes(apply: bool = False) -> dict:
+    """Rebuild the PDF of every application still awaiting approval, from the wording already reviewed.
+
+    Use after changing something the template reads straight from the profile (projects, education, contact details).
+    No language model is involved: the tailored headline, summary and bullets are reused exactly as they were checked,
+    so nothing needs re-reviewing. Submitted applications keep the document that was actually sent.
+    """
+    from backend.app.db import session
+    from backend.app.models import Application
+    from backend.core import resume
+    report = {"rebuilt": [], "skipped": []}
+    with session() as db:
+        rows = db.query(Application).filter(Application.status.in_(["pending_review", "approved", "needs_human"])).all()
+        for a in rows:
+            overlay = (a.answers or {}).get("overlay")
+            if not overlay:
+                report["skipped"].append(a.id); continue
+            report["rebuilt"].append(a.id)
+            if apply:
+                a.resume_path = resume.render_pdf(overlay, tag=f"{a.job.company}_{a.job.title}"[:40])
     return report
 
 

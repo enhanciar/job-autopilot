@@ -1,4 +1,6 @@
 target_per_day: 100
+resume:
+  max_pages: 2          # projects are always kept; content is only trimmed past this limit
 review_mode: true
 fit_threshold: 65
 auto_submit_min_score: 75

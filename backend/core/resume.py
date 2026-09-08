@@ -26,7 +26,9 @@ def _period(e: dict) -> str:
 
 
 def build_context(overlay: dict | None = None) -> dict:
-    """overlay keys (all optional): headline, summary, skills_order [labels], experience_bullets {company: [bullets]}, include_projects bool."""
+    """overlay keys (all optional): headline, summary, skills_order [labels], experience_bullets {company: [bullets]}.
+
+    Projects always appear: they are the candidate's own work and no tailoring pass may drop them."""
     p = profile.load()
     o = overlay or {}
     known_labels = {"llm_agents": "LLM & Agents", "rag_knowledge": "RAG & Knowledge", "llmops": "LLMOps", "languages": "Languages",
@@ -41,12 +43,25 @@ def build_context(overlay: dict | None = None) -> dict:
     for e in p["experience"]:
         ob = (o.get("experience_bullets") or {}).get(e["company"])
         if e.get("current") or e["company"] == recent_previous or ob:
+            bullets = ob or (e.get("bullets", []) if e.get("current") else e.get("bullets", [])[:1])
+            cap = o.get("_max_bullets_current") if e.get("current") else o.get("_max_bullets_old")
             exp.append({"title": e["title"], "company": e["company"], "location": e.get("location", ""), "period": _period(e),
-                        "bullets": ob or (e.get("bullets", []) if e.get("current") else e.get("bullets", [])[:1])})
+                        "bullets": bullets[:cap] if cap else bullets})
         else:
             earlier.append(f"{e['title']} @ {e['company']} ({_period(e)})")
-    projects = [pr for pr in p.get("projects", []) if "TODO" not in pr.get("summary", "")] if o.get("include_projects", True) else []
-    return {"p": p, "headline": o.get("headline") or p["identity"]["headline"], "summary": (o.get("summary") or p["positioning"]["summary"]).strip(),
+    # Every project the profile lists is shown. Editing notes to yourself ("repo URL TODO") are stripped from the text
+    # rather than used as a reason to hide the whole project, which is what silently emptied this section before.
+    projects = []
+    for pr in p.get("projects", []):
+        summary = re.sub(r"\s*\([^)]*\bTODO\b[^)]*\)|\s*;?[^;.()]*\bTODO\b[^;.()]*", "", str(pr.get("summary") or ""), flags=re.I)
+        summary = re.sub(r"\s+", " ", summary).strip(" ;,.")
+        if pr.get("name"):
+            projects.append({**pr, "summary": summary})
+    summary_text = (o.get("summary") or p["positioning"]["summary"]).strip()
+    if o.get("_short_summary"):
+        sentences = re.split(r"(?<=[.!?])\s+", summary_text)
+        summary_text = " ".join(sentences[:2])
+    return {"p": p, "headline": o.get("headline") or p["identity"]["headline"], "summary": summary_text,
             "skills": skills, "experience": exp, "earlier": earlier, "projects": projects}
 
 
@@ -54,23 +69,50 @@ def render_html(overlay: dict | None = None) -> str:
     return _env.get_template("resume.html").render(**build_context(overlay))
 
 
+def _fit_variants(overlay: dict | None):
+    """Content to try, densest first, when everything does not fit on one page.
+
+    Projects are the candidate's own work and are never among the things dropped: the trimming happens to older-role
+    bullets, then to the current role's, then to the summary."""
+    o = dict(overlay or {})
+    yield o, {}
+    for cut in (3, 2):
+        variant = dict(o); variant["_max_bullets_old"] = 1; variant["_max_bullets_current"] = cut
+        yield variant, {"trimmed": f"current-role bullets to {cut}"}
+    variant = dict(o); variant["_max_bullets_old"] = 1; variant["_max_bullets_current"] = 2; variant["_short_summary"] = True
+    yield variant, {"trimmed": "bullets and summary"}
+
+
+def max_pages() -> int:
+    """How long the resume may be. Two pages by default; set resume.max_pages in config.yaml to change it."""
+    value = (config.load().get("resume") or {}).get("max_pages", 2)
+    return value if isinstance(value, int) and 1 <= value <= 3 else 2
+
+
 def render_pdf(overlay: dict | None = None, tag: str = "base") -> str:
-    """Returns path relative to project root."""
-    html = render_html(overlay)
-    h = hashlib.sha1(html.encode()).hexdigest()[:8]
-    safe = re.sub(r"[^a-z0-9]+", "_", tag.lower())[:40]
-    who = re.sub(r"[^A-Za-z0-9]+", "_", profile.get("identity.name") or "Resume").strip("_") or "Resume"
-    out = OUT_DIR / f"{who}_{safe}_{h}.pdf"
-    if not out.exists():
-        with sync_playwright() as pw:
-            b = pw.chromium.launch(channel="chrome", headless=True)
-            pg = b.new_page()
-            pg.set_content(html, wait_until="load")
-            pg.pdf(path=str(out), format="A4", print_background=True, margin={"top": "0", "bottom": "0", "left": "0", "right": "0"})
-            b.close()
+    """Render the resume, keeping every project. Content is only trimmed if it runs past the page limit.
+    Returns the path relative to the project root."""
     from pypdf import PdfReader
-    reader = PdfReader(str(out))
-    extracted = " ".join((page.extract_text() or "") for page in reader.pages)
-    if len(reader.pages) != 1 or profile.get("identity.name") not in extracted:
-        raise ValueError("Resume must be one readable page with the candidate name; revise the content before queuing")
-    return str(out.relative_to(config.ROOT))
+    last_error = None
+    for variant, note in _fit_variants(overlay):
+        html = render_html(variant)
+        h = hashlib.sha1(html.encode()).hexdigest()[:8]
+        safe = re.sub(r"[^a-z0-9]+", "_", tag.lower())[:40]
+        who = re.sub(r"[^A-Za-z0-9]+", "_", profile.get("identity.name") or "Resume").strip("_") or "Resume"
+        out = OUT_DIR / f"{who}_{safe}_{h}.pdf"
+        if not out.exists():
+            with sync_playwright() as pw:
+                b = pw.chromium.launch(channel="chrome", headless=True)
+                pg = b.new_page()
+                pg.set_content(html, wait_until="load")
+                pg.pdf(path=str(out), format="A4", print_background=True, margin={"top": "0", "bottom": "0", "left": "0", "right": "0"})
+                b.close()
+        reader = PdfReader(str(out))
+        extracted = " ".join((page.extract_text() or "") for page in reader.pages)
+        if profile.get("identity.name") not in extracted:
+            raise ValueError("The rendered resume does not contain the candidate name; check the profile and template")
+        if len(reader.pages) <= max_pages():
+            return str(out.relative_to(config.ROOT))
+        last_error = f"{len(reader.pages)} pages{' after trimming ' + note['trimmed'] if note else ''}"
+        out.unlink(missing_ok=True)
+    raise ValueError(f"Resume runs past {max_pages()} page(s) ({last_error}); shorten the profile summary or project descriptions")

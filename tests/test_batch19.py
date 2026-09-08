@@ -361,6 +361,7 @@ def test_reposted_role_is_not_prepared_twice(monkeypatch):
             db.add(Job(dedupe_key=f"k{suffix}", source="weworkremotely", company="Huzzle", title="Full-Stack Developer (Python, React, AI)",
                        url=f"https://w.example/huzzle-full-stack{suffix}", location="Anywhere", country="Remote (worldwide)",
                        description="d" * 400, eligible=True, fit_score=90, status="scored"))
+        db.flush()          # this session does not autoflush
         ids = [j.id for j in db.query(Job).order_by(Job.id).all()]
     tailored = {"headline": "h", "summary": "s", "skills_order": [], "experience_bullets": {}, "cover_note": "c", "why_company": "w"}
     monkeypatch.setattr(llm, "complete_json", lambda task, *a, **k: tailored if task == "tailor" else {"ok": True, "violations": []})
@@ -372,3 +373,28 @@ def test_reposted_role_is_not_prepared_twice(monkeypatch):
         assert db.query(Application).count() == 1
         assert db.get(Job, ids[1]).status == "skipped"
         assert "already prepared" in db.get(Job, ids[1]).eligibility_reason
+
+
+def test_projects_always_survive_tailoring_and_trimming():
+    """The candidate's own projects are not a tailoring lever: no overlay and no page-fitting pass may drop them."""
+    from backend.core import resume
+    prof = profile.load()
+    prof["projects"] = [{"name": "Ignite AI Backend", "summary": "LLM backend project (repo URL TODO from user)"},
+                        {"name": "DevHive", "summary": "Developer tooling project"}]
+    profile.save(prof)
+    names = [p["name"] for p in resume.build_context()["projects"]]
+    assert names == ["Ignite AI Backend", "DevHive"]
+    assert "TODO" not in resume.build_context()["projects"][0]["summary"]      # the note to self is stripped, not the project
+    trimmed = resume.build_context({"_max_bullets_current": 2, "_max_bullets_old": 1, "_short_summary": True})
+    assert [p["name"] for p in trimmed["projects"]] == names                   # still there at the densest setting
+    assert all(len(e["bullets"]) <= 2 for e in trimmed["experience"])          # bullets are what gets trimmed instead
+    assert "Projects" in resume.render_html()
+
+
+def test_resume_page_limit_comes_from_config(monkeypatch):
+    from backend.core import config, resume
+    assert resume.max_pages() == 2
+    monkeypatch.setattr(config, "load", lambda: {"resume": {"max_pages": 1}})
+    assert resume.max_pages() == 1
+    monkeypatch.setattr(config, "load", lambda: {"resume": {"max_pages": 99}})
+    assert resume.max_pages() == 2                                            # nonsense falls back, never unlimited

@@ -63,9 +63,13 @@ Open http://localhost:8000.
 2. **Profile page → Answer bank.** These are your canned answers to screening questions (regular expression → answer).
    Placeholders like `{preferences.expected_salary_lpa}` pull from your profile. Add anything specific to you
    (e.g. `^title:?$` → your salutation). `__LLM__` means "write it from my profile, fact-checked".
-3. **Settings.** `filters.titles_include/exclude` (which job titles count), `fit_threshold`, per-platform daily caps,
+3. **Projects.** Anything under `projects:` in your profile always appears on the resume. Write a real one-line
+   summary for each: the tailoring pass may reorder and rephrase, but it can never invent detail, so a thin summary
+   stays thin. `resume.max_pages` in config.yaml (default 2) sets the length; content is only trimmed past that limit,
+   and projects are never what gets trimmed.
+4. **Settings.** `filters.titles_include/exclude` (which job titles count), `fit_threshold`, per-platform daily caps,
    `review_mode: true` (keep it on until you trust the output).
-4. **Platforms page** → *Log in* on each platform you use. A Chrome window opens on the automation profile; sign in
+5. **Platforms page** → *Log in* on each platform you use. A Chrome window opens on the automation profile; sign in
    normally. Sessions persist between runs.
 
 ## Daily use
