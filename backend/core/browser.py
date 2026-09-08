@@ -141,17 +141,24 @@ def is_logged_in(page: Page, platform: str) -> bool:
         return True
     if m["login_url_part"] in page.url:
         return False
-    # Each entry is tried on its own: a CSS list cannot contain a text= engine selector, and mixing them made the whole
-    # check throw, so Cutshort and Naukri could never be seen as logged in however many times you signed in.
+    # Two traps, both of which made a signed-in platform look signed out:
+    #   * a CSS list cannot contain a text= engine selector, so mixing them threw (Cutshort, Naukri);
+    #   * wait_for_selector resolves a comma list to the FIRST match in the DOM and waits for that one to become
+    #     visible, so a hidden first match failed even with visible matches right behind it (Peerlist).
+    # So: poll for any VISIBLE match of any selector.
     selectors = m["logged_in_selector"]
     if isinstance(selectors, str): selectors = [selectors]
-    for i, selector in enumerate(selectors):
-        try:
-            page.wait_for_selector(selector, timeout=6000 if i == 0 else 1500)
-            return True
-        except Exception:
-            continue
-    return False
+    deadline = time.monotonic() + 6
+    while True:
+        for selector in selectors:
+            try:
+                if page.locator(selector).filter(visible=True).count():
+                    return True
+            except Exception:
+                continue
+        if time.monotonic() >= deadline:
+            return False
+        page.wait_for_timeout(400)
 
 
 def ensure_login(page: Page, platform: str, log, wait_minutes: int = 15, should_stop=lambda: False, on_ready=lambda: None) -> bool:
