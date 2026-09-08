@@ -178,7 +178,7 @@ def tailor(ctx, job_id: int, provider: str | None = None, replace_existing: bool
         j = db.get(Job, job_id)
         platform = ats if ats else (source if source in PLATFORM_SKILLS else "web")
         app = Application(job_id=j.id, platform=platform, method=method, status="pending_review", resume_path=pdf,
-                          cover_note=out.get("cover_note"), answers={"why_company": out.get("why_company"), "overlay": overlay, "factcheck": fc, "keywords": kw, "profile_hash": profile_hash, "prompt_version": "2026-09-07-v2"})
+                          cover_note=out.get("cover_note"), answers={"why_company": out.get("why_company"), "overlay": overlay, "factcheck": fc, "keywords": kw, "profile_hash": profile_hash, "answers_hash": profile.answers_fingerprint(), "prompt_version": "2026-09-07-v2"})
         if previous:
             existing = db.get(Application, previous[0])
             if not existing or (existing.status, existing.updated_at) != previous[1:]:

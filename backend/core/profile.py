@@ -27,10 +27,27 @@ def answers() -> list[dict]:
     return _read(ANSWERS_PATH, "answers", [])
 
 
+DOCUMENT_FACTS = ("identity", "positioning", "skills", "experience", "education", "projects")
+
+
 def fingerprint() -> str:
-    """Version all source facts and declarations used to prepare an application."""
+    """Version the facts a tailored resume and cover note are built from.
+
+    Deliberately excludes the answer bank and preferences: a new screening answer or a changed salary expectation does not
+    change a single word of an already-generated document, so it must not force every prepared application to be redone.
+    Answer-bank changes are versioned separately by `answers_fingerprint()`."""
     import hashlib, json
-    return hashlib.sha256(json.dumps({"profile": load(), "answers": answers()}, sort_keys=True, default=str).encode()).hexdigest()
+    facts = {k: v for k, v in load().items() if k in DOCUMENT_FACTS}
+    return hashlib.sha256(json.dumps(facts, sort_keys=True, default=str).encode()).hexdigest()
+
+
+def answers_fingerprint() -> str:
+    """Version of the answer bank plus the preferences it draws on: recorded on each application for provenance."""
+    import hashlib, json
+    prof = load()
+    return hashlib.sha256(json.dumps({"answers": answers(), "preferences": prof.get("preferences"),
+                                      "declarations": prof.get("declarations"), "capabilities": prof.get("capabilities")},
+                                     sort_keys=True, default=str).encode()).hexdigest()
 
 
 def get(path: str, prof: dict | None = None, default=""):
@@ -72,12 +89,55 @@ def answer_for(question: str, prof: dict | None = None) -> str | None:
         return "Yes" if (years > required if re.search(r"over|more than", q) else years >= required) else "No"
     if re.search(r"how many years|years of (professional |relevant |work )?experience", q):
         return str(int(years)) if years.is_integer() else str(years)
+    capability = _capability_answer(q, p)
+    if capability is not None:
+        return capability
     # Sensitive factual declarations must be explicitly supplied, not inferred by a broad regex.
     if re.search(r"arbitration|recording consent|employment agreements|non.?compete|government official|politically exposed|sanction|export control", q):
         return (p.get("declarations") or {}).get(q)
     for row in answers():
         if re.search(row["match"], q):
             return fill(row["answer"], prof)
+    return None
+
+
+CAPABILITY_RX = re.compile(r"(?:have you (?:ever )?(?:worked with|worked on|used|built|implemented|developed|deployed|written)"
+                           r"|do you have (?:any )?(?:hands.?on )?experience (?:with|in|using|of)"
+                           r"|are you (?:experienced|comfortable|familiar) (?:with|in)"
+                           r"|experience (?:with|in|using))\s+(.{2,90})", re.I)
+CAPABILITY_STOP = re.compile(r"\b(a |an |the |our |their )\b")
+
+
+def capabilities(prof: dict | None = None) -> dict:
+    """What this person can truthfully claim hands-on experience with.
+
+    Two sources, both explicit: everything listed in the profile's skills, project and role stacks (present = yes), plus a
+    `capabilities:` mapping in the profile for anything you want to state deliberately, including a No. Nothing is inferred
+    from a similar-sounding tool, so an unlisted technology stays unanswered and reaches you instead of being guessed."""
+    p = prof or load()
+    known = {}
+    for values in (p.get("skills") or {}).values():
+        for v in values or []: known[str(v).lower()] = True
+    for e in p.get("experience") or []:
+        for v in e.get("stack") or []: known[str(v).lower()] = True
+    for k, v in (p.get("capabilities") or {}).items():
+        known[str(k).lower()] = bool(v) if isinstance(v, bool) else str(v).strip().lower() in ("yes", "true", "y")
+    return known
+
+
+def _capability_answer(question: str, prof: dict) -> str | None:
+    """Yes/No for 'have you worked with X?' when X is named in the profile; None when it is not, so a human decides."""
+    m = CAPABILITY_RX.search(question)
+    if not m: return None
+    subject = CAPABILITY_STOP.sub(" ", m.group(1).lower())
+    subject = re.split(r"\bin a production\b|\bin production\b|\?|\bfor \b|,", subject)[0]
+    words = [w for w in re.split(r"[^a-z0-9+#./-]+", subject) if len(w) > 1]
+    if not words: return None
+    known = capabilities(prof)
+    for name, ok in known.items():
+        parts = [w for w in re.split(r"[^a-z0-9+#./-]+", name) if len(w) > 1]
+        if parts and all(part in words for part in parts):
+            return "Yes" if ok else "No"
     return None
 
 

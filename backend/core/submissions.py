@@ -11,7 +11,7 @@ def approval_issue(app) -> str | None:
     if check.get("ok") is not True or check.get("violations"):
         return "Application must pass fact-check before approval"
     if answers.get("profile_hash") != profile.fingerprint():
-        return "Profile or answer bank changed (or this is a legacy document). Regenerate documents and review them again."
+        return "Your profile facts changed since these documents were written (or this is a legacy document). Regenerate them and review again."
     return None
 
 

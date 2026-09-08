@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 import feedparser
 from bs4 import BeautifulSoup
+import re
 from backend.core.collectors.base import client, ingest
 
 
@@ -86,6 +87,18 @@ def weworkremotely(ctx):
     return ingest(ctx, "weworkremotely", items)
 
 
+APPLY_HINT = re.compile(r"jobs|careers?|apply|greenhouse|lever\.co|ashbyhq|workable|smartrecruiters|recruitee|notion\.site|forms\.gle|typeform|workday", re.I)
+
+
+def apply_target(text: str) -> tuple[str | None, str | None]:
+    """A 'Who is hiring' comment says how to apply in its own text. Return (apply_url, email) so the posting is actionable
+    instead of pointing at the discussion thread."""
+    email = re.search(r"[\w.+-]+@[\w.-]+\.[a-zA-Z]{2,}", text or "")
+    urls = [u.rstrip(').,;\'"') for u in re.findall(r"https?://[^\s)>\"']+", text or "") if "news.ycombinator.com" not in u]
+    best = next((u for u in urls if APPLY_HINT.search(u)), None) or (urls[0] if urls else None)
+    return best, (email.group(0) if email else None)
+
+
 def hackernews(ctx):
     """Latest 'Ask HN: Who is hiring?' thread via Algolia; each top-level comment is a posting."""
     with client() as c:
@@ -105,8 +118,11 @@ def hackernews(ctx):
                 company = first.split("|")[0].strip() or "HN poster"
                 title = (first.split("|")[1].strip() if "|" in first else "Engineer (see post)")[:200]
                 loc = "remote" if "remote" in text.lower() else first
-                items.append(dict(company=company, title=title, url=f"https://news.ycombinator.com/item?id={h['objectID']}", location=loc, remote_scope=loc,
-                                  posted_at=_dt(h.get("created_at")), description=text, tags=[month], raw={"author": h.get("author")}))
+                link, email = apply_target(text)
+                items.append(dict(company=company, title=title, url=f"https://news.ycombinator.com/item?id={h['objectID']}",
+                                  apply_url=link, location=loc, remote_scope=loc,
+                                  posted_at=_dt(h.get("created_at")), description=text, tags=[month],
+                                  raw={"author": h.get("author"), "apply_email": email}))
             if len(r.get("hits", [])) < 200:
                 break
     return ingest(ctx, "hackernews", items)

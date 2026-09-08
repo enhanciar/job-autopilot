@@ -202,3 +202,61 @@ def test_profile_api_roundtrip_and_backup(monkeypatch):
     assert profile.load()["identity"]["name"] != "Ada Lovelace"
     assert client.post("/api/profile/resume", files={"file": ("cv.exe", b"x" * 300, "application/octet-stream")}).status_code == 422
     assert client.put("/api/profile", json={"yaml": before["yaml"]}).status_code == 200      # restore for later tests
+
+
+# ---------------------------------------------------------------- batch 20: queue repairs
+def test_document_fingerprint_ignores_answer_bank_changes(tmp_path):
+    """Editing a screening answer must not invalidate resumes: no word of them can have changed."""
+    before, before_answers = profile.fingerprint(), profile.answers_fingerprint()
+    rows = profile.answers()
+    profile.save_answers(rows + [{"match": "a very specific new question", "answer": "Yes"}])
+    assert profile.fingerprint() == before                      # documents stay valid
+    assert profile.answers_fingerprint() != before_answers      # but the answer bank is versioned
+    prof = profile.load(); prof["identity"]["headline"] = "New headline"
+    profile.save(prof)
+    assert profile.fingerprint() != before                      # changing the facts does invalidate them
+
+
+def test_capability_answers_only_claim_what_the_profile_lists():
+    prof = profile.load()
+    prof["skills"] = {"backend": ["Docker", "PostgreSQL"]}
+    prof["experience"] = [{"company": "A", "title": "E", "start": "2022-01", "current": True, "stack": ["RAG"], "bullets": []}]
+    prof["capabilities"] = {"ai agents": True, "azure": False}
+    assert profile.answer_for("Have you worked with Docker?", prof) == "Yes"
+    assert profile.answer_for("Do you have experience with RAG?", prof) == "Yes"
+    assert profile.answer_for("Have you developed AI Agents?", prof) == "Yes"
+    assert profile.answer_for("Do you have experience with Azure?", prof) == "No"      # explicit No is honoured
+    assert profile.answer_for("Have you used Kubernetes?", prof) is None               # unlisted stays for the human
+    assert profile.answer_for("Have you worked with Snowflake in a production environment?", prof) is None
+
+
+def test_hn_apply_target_reads_the_link_out_of_the_post():
+    from backend.core.collectors.public_apis import apply_target
+    post = "Acme | Engineer | Remote\nWe build things.\nApply: https://jobs.ashbyhq.com/acme/123 or email jobs@acme.com"
+    assert apply_target(post) == ("https://jobs.ashbyhq.com/acme/123", "jobs@acme.com")
+    assert apply_target("No links here at all") == (None, None)
+    assert apply_target("Discussion https://news.ycombinator.com/item?id=1 and https://acme.com/careers/")[0] == "https://acme.com/careers/"
+
+
+def test_queue_repairs_are_reportonly_until_applied():
+    from backend.app.models import Job, Application
+    from backend.core import ops
+    with session() as db:
+        j = Job(dedupe_key="hn1", source="hackernews", company="Acme", title="Engineer", url="https://news.ycombinator.com/item?id=1",
+                apply_url="https://news.ycombinator.com/item?id=1", description="Acme | Engineer\nApply at https://acme.com/careers/")
+        db.add(j); db.flush()
+        db.add(Application(job_id=j.id, platform="web", method="external", status="needs_human", error="Hacker News post: no application form", answers={}))
+        stuck = Job(dedupe_key="q1", source="ashby", company="Beta", title="Engineer", url="https://b.example/1", country="India")
+        db.add(stuck); db.flush()
+        db.add(Application(job_id=stuck.id, platform="ashby", method="ats_form", status="needs_human",
+                           error="Unanswered fields: Middle Name | Language Preference *", answers={}))
+    assert len(ops.link_apply_urls()["linked"]) == 1
+    with session() as db:
+        assert db.query(Application).filter_by(status="needs_human").count() == 2      # reporting changed nothing
+    ops.link_apply_urls(apply=True)
+    ops.recheck_answers(apply=True)
+    with session() as db:
+        hn = db.query(Application).join(Job).filter(Job.source == "hackernews").one()
+        assert hn.status == "pending_review" and hn.method == "ats_form" and hn.job.apply_url == "https://acme.com/careers/"
+        other = db.query(Application).join(Job).filter(Job.source == "ashby").one()
+        assert other.status == "pending_review" and other.error is None
