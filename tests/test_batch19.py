@@ -260,3 +260,26 @@ def test_queue_repairs_are_reportonly_until_applied():
         assert hn.status == "pending_review" and hn.method == "ats_form" and hn.job.apply_url == "https://acme.com/careers/"
         other = db.query(Application).join(Job).filter(Job.source == "ashby").one()
         assert other.status == "pending_review" and other.error is None
+
+
+def test_clear_stuck_protects_possibly_sent_applications():
+    """Deleting the record is the only thing that remembers we touched an employer, so an uncertain submit must not
+    let the same job be applied to again."""
+    from backend.app.models import Job, Application
+    from backend.core import ops
+    with session() as db:
+        for key, error in (("a", "CAPTCHA present; solve it manually"), ("b", "no confirmation text detected after submit")):
+            j = Job(dedupe_key=key, source="ashby", company=key, title="Engineer", url=f"https://x/{key}", status="queued")
+            db.add(j); db.flush()
+            db.add(Application(job_id=j.id, platform="ashby", method="ats_form", status="needs_human", error=error, answers={}))
+        keep = Job(dedupe_key="c", source="ashby", company="c", title="Engineer", url="https://x/c", status="queued")
+        db.add(keep); db.flush()
+        db.add(Application(job_id=keep.id, platform="ashby", method="ats_form", status="pending_review", answers={}))
+    assert ops.clear_stuck()["deleted"] == 2
+    with session() as db:
+        assert db.query(Application).count() == 3               # report-only changed nothing
+    ops.clear_stuck(apply=True)
+    with session() as db:
+        assert db.query(Application).count() == 1               # the reviewable one survives
+        assert db.query(Job).filter_by(dedupe_key="a").one().status == "skipped"
+        assert db.query(Job).filter_by(dedupe_key="b").one().status == "applied"    # never offered again

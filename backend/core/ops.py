@@ -58,7 +58,7 @@ def retention(days=30):
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action',choices=['backup','report','restore','retention','relink-documents','route-email','link-apply-urls','recheck-answers'])
+    parser.add_argument('action',choices=['backup','report','restore','retention','relink-documents','route-email','link-apply-urls','recheck-answers','clear-stuck'])
     parser.add_argument('--apply',action='store_true',help='write the change; without it the command only reports')
     parser.add_argument('--path',type=Path); parser.add_argument('--destination',type=Path)
     args=parser.parse_args()
@@ -68,6 +68,11 @@ def main():
     elif args.action=='restore':
         if not args.path or not args.destination: parser.error('--path and --destination are required')
         restore(args.path,args.destination);print('Restored to new destination')
+    elif args.action=='clear-stuck':
+        if args.apply: print('backup:', backup(config.DATA/'backups'/f'before-clear-{datetime.now():%Y%m%d-%H%M%S}.db'))
+        result=clear_stuck(args.apply)
+        print(json.dumps({'applications_deleted':result['deleted'],'jobs_protected_from_reapplying':len(result['protected_jobs']),'jobs_marked_skipped':result['skipped_jobs']},indent=2))
+        if not args.apply: print('Nothing was written. Re-run with --apply.')
     elif args.action=='recheck-answers':
         result=recheck_answers(args.apply)
         print(json.dumps({'ready':len(result['ready']),'still_blocked':result['still_blocked']},indent=2,default=str))
@@ -202,6 +207,36 @@ def recheck_answers(apply: bool = False) -> dict:
                 a.answers = {**(a.answers or {}), "repair_note": "Every open question now has an answer; nothing was ever submitted to this employer."}
                 a.error = None
     forms.CTX.clear()
+    return report
+
+
+def clear_stuck(apply: bool = False) -> dict:
+    """Delete applications that stopped on a human step, and stop their jobs coming straight back.
+
+    Two safeguards, because deleting the record is the only thing that remembers we ever touched an employer:
+      * a job whose application may already have reached the employer (submit was pressed, no confirmation seen) is marked
+        'applied', never 'skipped', so a later run cannot send that employer a second application;
+      * every other job is marked 'skipped', otherwise the next run re-tailors the same posting and it gets stuck again.
+    Confirmed submissions, replies and anything waiting for your approval are left alone. Back up before using --apply.
+    """
+    from datetime import datetime
+    from backend.app.db import session
+    from backend.app.models import Application
+    uncertain = ("no confirmation text", "submitting", "unverified", "could not be verified")
+    report = {"deleted": 0, "protected_jobs": [], "skipped_jobs": 0, "backup": None}
+    with session() as db:
+        rows = db.query(Application).filter(Application.status.in_(["needs_human", "failed"])).all()
+        for a in rows:
+            maybe_sent = any(w in (a.error or "").lower() for w in uncertain) or a.submitted_at is not None
+            report["deleted"] += 1
+            if maybe_sent: report["protected_jobs"].append((a.job_id, a.job.company))
+            else: report["skipped_jobs"] += 1
+            if apply:
+                a.job.status = "applied" if maybe_sent else "skipped"
+                a.job.eligibility_reason = ((a.job.eligibility_reason or "") +
+                                            f" | cleared {datetime.utcnow():%Y-%m-%d}: " +
+                                            ("application may already have reached this employer" if maybe_sent else "stuck application removed at your request"))[:2000]
+                db.delete(a)
     return report
 
 
