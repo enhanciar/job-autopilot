@@ -355,7 +355,7 @@ def test_answering_questions_never_invalidates_prepared_documents(monkeypatch):
 def test_reposted_role_is_not_prepared_twice(monkeypatch):
     """Boards repost the same vacancy under a new URL; two applications to one role reads as careless."""
     from backend.app.models import Job, Application
-    from backend.core import pipeline, llm, resume
+    from backend.core import pipeline, llm, resume, runner
     with session() as db:
         for suffix in ("", "-1"):
             db.add(Job(dedupe_key=f"k{suffix}", source="weworkremotely", company="Huzzle", title="Full-Stack Developer (Python, React, AI)",
