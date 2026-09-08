@@ -138,6 +138,33 @@ class PlatformSession(Base):
     note: Mapped[str | None] = mapped_column(Text)
 
 
+class Question(Base):
+    """A screening question the system could not answer, kept so you can answer it once and never see it again."""
+    __tablename__ = "questions"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    fingerprint: Mapped[str] = mapped_column(String(64), unique=True, index=True)   # normalised text: groups rewordings
+    text: Mapped[str] = mapped_column(Text)                            # the clearest wording seen so far
+    options: Mapped[list | None] = mapped_column(JSON)                 # visible choices, when it was a dropdown/radio
+    companies: Mapped[list | None] = mapped_column(JSON)               # who asked it
+    times_seen: Mapped[int] = mapped_column(Integer, default=1)
+    status: Mapped[str] = mapped_column(String(20), default="open", index=True)     # open, answered, skipped
+    answer: Mapped[str | None] = mapped_column(Text)
+    rule_match: Mapped[str | None] = mapped_column(Text)               # regex written into the answer bank
+    stored_in: Mapped[str | None] = mapped_column(String(20))          # answers, capabilities, declarations
+    first_seen: Mapped[datetime] = mapped_column(DateTime, default=now)
+    last_seen: Mapped[datetime] = mapped_column(DateTime, default=now)
+
+
+class ChatTurn(Base):
+    """The question-answering conversation, kept so the page survives a refresh."""
+    __tablename__ = "chat_turns"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    role: Mapped[str] = mapped_column(String(12))                      # user, assistant
+    text: Mapped[str] = mapped_column(Text)
+    question_id: Mapped[int | None] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=now)
+
+
 class ActionLog(Base):
     """Every capped action, for daily cap accounting."""
     __tablename__ = "action_log"

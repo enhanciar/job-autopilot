@@ -183,6 +183,8 @@ class ATSApplySkill(BaseSkill):
             db.get(Application, aid).screenshot_before = shot_before
         unanswered += forms.validate_required(page, root)
         if unanswered:
+            from backend.core import questions
+            questions.record(unanswered, company)          # collect them so they can be answered once, in the Questions page
             self._fail(aid, "Unanswered fields: " + " | ".join(unanswered[:8]), page, "needs_human"); return
         if not uploaded and root.locator("input[type='file']").count():
             self._fail(aid, "resume upload field present but upload failed", page, "needs_human"); return

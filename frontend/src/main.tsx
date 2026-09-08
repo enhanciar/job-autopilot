@@ -13,6 +13,7 @@ import RunSystem from './pages/RunSystem'
 import Runs from './pages/Runs'
 import Settings from './pages/Settings'
 import Profile from './pages/Profile'
+import Questions from './pages/Questions'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
@@ -30,6 +31,7 @@ createRoot(document.getElementById('root')!).render(
           <Route path="runs" element={<Runs />} />
           <Route path="settings" element={<Settings />} />
           <Route path="profile" element={<Profile />} />
+          <Route path="questions" element={<Questions />} />
         </Route>
       </Routes>
     </BrowserRouter>

@@ -6,7 +6,7 @@ from fastapi.responses import JSONResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from backend.app.db import init_db
-from backend.app.routers import jobs, applications, outreach, runs, stats, platforms, settings, profile as profile_router
+from backend.app.routers import jobs, applications, outreach, runs, stats, platforms, settings, profile as profile_router, questions as questions_router
 from backend.core import config
 
 @asynccontextmanager
@@ -31,7 +31,7 @@ async def local_access(request: Request, call_next):
         if request.headers.get("sec-fetch-site") == "cross-site": return JSONResponse({"detail": "Cross-site writes denied"}, status_code=403)
     return await call_next(request)
 
-for router in (jobs, applications, outreach, runs, stats, platforms, settings, profile_router):
+for router in (jobs, applications, outreach, runs, stats, platforms, settings, profile_router, questions_router):
     app.include_router(router.router, prefix="/api")
 
 @app.get("/api/health")

@@ -42,6 +42,8 @@ def dashboard():
             elif path == '/api/runs/health': data = {'worker_active': False, 'queued': 1, 'browser_handoffs': [2], 'browser': {'profile': 'shared', 'busy': False}}
             elif path == '/api/runs': data = [{'id': 2, 'kind': 'fullrun', 'name': 'full:linkedin', 'status': 'paused_for_human', 'started_at': '2026-09-07T10:00:00', 'ended_at': '2026-09-07T10:15:00', 'stats': {}, 'error': None}]
             elif path in ('/api/runs/events', '/api/runs/fullrun/platforms', '/api/platforms'): data = []
+            elif path == '/api/questions': data = {'summary': {'open': 2, 'answered': 0, 'skipped': 0}, 'open': [], 'history': []}
+            elif path == '/api/profile': data = {'identity': {'name': 'Test User', 'headline': 'Engineer'}, 'yaml': '', 'answers_yaml': '', 'fingerprint': 'x', 'resume_base': None, 'answers_count': 0, 'stale_applications': 0}
             elif path == '/api/platforms/llm': data = {}
             else: data = {}
             request.fulfill(status=200, content_type='application/json', body=json.dumps(data))

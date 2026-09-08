@@ -75,3 +75,4 @@ def init_db():
         if "provider_message_id" not in {c["name"] for c in inspect(conn).get_columns("outreach")}:
             conn.execute(text("ALTER TABLE outreach ADD COLUMN provider_message_id VARCHAR(200)"))
         conn.execute(text("INSERT OR IGNORE INTO schema_migrations(version) VALUES (3)"))
+        conn.execute(text("INSERT OR IGNORE INTO schema_migrations(version) VALUES (4)"))   # questions + chat_turns (created above)

@@ -77,6 +77,10 @@ Open http://localhost:8000.
   submit approved applications. Anything that needs you shows as `needs_human` with a screenshot and reason.
 - `.venv/bin/python assist.py` opens each `needs_human` form filled in, for you to finish (codes, CAPTCHAs, Workday
   accounts). `assist.py workday 3` does the next three Workday applications.
+- **Questions**: when a form asks something your profile does not cover, the application stops and the question lands
+  here. Answer it in plain words once ("about 30 days", "no, never used Azure") and it is stored where it belongs: the
+  answer bank, your capabilities, or a declaration. Every later employer asking the same thing is handled without you.
+  Answering never invalidates resumes that are already prepared.
 - **Outreach**: approve drafted emails and LinkedIn notes; *Send approved emails*, *Check replies*, *Draft follow-ups*.
 - **Runs & logs**: worker status (heartbeat), every run, retry for interrupted runs.
 

@@ -67,10 +67,20 @@ def fill(template: str, prof: dict | None = None) -> str:
     return re.sub(r"\{([a-z_.0-9]+)\}", lambda m: str(get(m.group(1), prof, m.group(0))), template)
 
 
+def declaration_key(question: str) -> str:
+    """One key per wording of a question you answered explicitly, so punctuation and asterisks do not hide it."""
+    return " ".join(re.sub(r"[^a-z0-9 ]+", " ", (question or "").lower()).split())[:300]
+
+
 def answer_for(question: str, prof: dict | None = None) -> str | None:
     """Return a canned answer, '__LLM__' if it needs generation, or None if unknown."""
     q = question.lower().strip()
     p = prof or load()
+    # Something you answered yourself for this exact question wins over every general rule below.
+    declared = {declaration_key(k): v for k, v in (p.get("declarations") or {}).items()}
+    exact = declared.get(declaration_key(question))
+    if exact is not None:
+        return exact if isinstance(exact, str) else ("Yes" if exact else "No")
     years = float(get("preferences.experience_years", p, 0))
     # Years with one specific technology are not the same as total career years. Only answer from an explicit
     # skill_years entry in the profile; otherwise leave it for the human.
@@ -94,7 +104,7 @@ def answer_for(question: str, prof: dict | None = None) -> str | None:
         return capability
     # Sensitive factual declarations must be explicitly supplied, not inferred by a broad regex.
     if re.search(r"arbitration|recording consent|employment agreements|non.?compete|government official|politically exposed|sanction|export control", q):
-        return (p.get("declarations") or {}).get(q)
+        return declared.get(declaration_key(q))
     for row in answers():
         if re.search(row["match"], q):
             return fill(row["answer"], prof)

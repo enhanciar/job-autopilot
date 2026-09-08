@@ -283,3 +283,70 @@ def test_clear_stuck_protects_possibly_sent_applications():
         assert db.query(Application).count() == 1               # the reviewable one survives
         assert db.query(Job).filter_by(dedupe_key="a").one().status == "skipped"
         assert db.query(Job).filter_by(dedupe_key="b").one().status == "applied"    # never offered again
+
+
+# ---------------------------------------------------------------- batch 21: question inbox and chat
+def test_questions_group_rewordings_and_drop_stray_labels():
+    from backend.core import questions
+    assert questions.normalise("Notice period *") == questions.normalise("notice period?")
+    assert questions.record(["Notice period *", "Notice period?", "Notice Period"], "Acme") == 1
+    assert questions.record(["notice period"], "Beta") == 0
+    q = questions.open_questions()[0]
+    assert q["times_seen"] == 4 and set(q["companies"]) == {"Acme", "Beta"}
+    # stray labels a form filler picks up by mistake are not questions
+    assert questions.record(["Benzinga", "q", "YES", "Facebook"], "Benzinga") == 0
+    assert questions.record(["Which team interests you? (choices: Platform, Product)"], "Acme") == 1
+    assert questions.open_questions()[-1]["options"] == ["Platform", "Product"]
+
+
+def test_chat_stores_each_kind_of_answer_where_it_belongs(monkeypatch):
+    from backend.core import questions, llm
+    questions.record(["Do you have experience with Kubernetes?"], "Acme")
+    questions.record(["What is your current notice period in days?"], "Beta")
+    questions.record(["Please confirm you have read our GDPR policy"], "Gamma")
+    find = lambda word: next(q["id"] for q in questions.open_questions() if word in q["text"])
+
+    monkeypatch.setattr(llm, "complete_json", lambda *a, **k: {"understood": True, "reply": "Noted.", "answer": "No",
+                                                               "store": "capabilities", "capability": "kubernetes", "yes": False, "skip": False})
+    questions.apply_answer(find("Kubernetes"), questions.interpret({"text": "x"}, "no"))
+    assert profile.load()["capabilities"]["kubernetes"] is False
+    assert profile.answer_for("Have you used Kubernetes?") == "No"
+
+    monkeypatch.setattr(llm, "complete_json", lambda *a, **k: {"understood": True, "reply": "Noted.", "answer": "30",
+                                                               "store": "answers", "match": "notice period.*days", "skip": False})
+    questions.apply_answer(find("notice period"), questions.interpret({"text": "x"}, "30 days"))
+    assert profile.answer_for("What is your current notice period in days?") == "30"
+
+    monkeypatch.setattr(llm, "complete_json", lambda *a, **k: {"understood": True, "reply": "Noted.", "answer": "I confirm I have read it.",
+                                                               "store": "declarations", "skip": False})
+    questions.apply_answer(find("GDPR"), questions.interpret({"text": "x"}, "yes I read it"))
+    assert profile.answer_for("please confirm you have read our gdpr policy") == "I confirm I have read it."
+    assert questions.summary() == {"open": 0, "answered": 3, "skipped": 0}
+
+
+def test_chat_endpoint_asks_again_when_the_reply_is_unclear(monkeypatch):
+    from fastapi.testclient import TestClient
+    from backend.app.main import app
+    from backend.core import questions, llm
+    questions.record(["What is your permanent address?"], "Acme")
+    qid = questions.open_questions()[0]["id"]
+    monkeypatch.setattr(llm, "complete_json", lambda *a, **k: {"understood": False, "reply": "Which address should I use?", "skip": False})
+    client = TestClient(app)
+    r = client.post("/api/questions/chat", json={"question_id": qid, "message": "not sure"}).json()
+    assert r["saved"] is None and "Which address" in r["reply"]
+    assert r["summary"]["open"] == 1 and r["next"]["id"] == qid          # still waiting on them
+    assert [t["role"] for t in questions.history()][-2:] == ["user", "assistant"]
+    assert client.post("/api/questions/chat", json={"question_id": qid, "message": "  "}).status_code == 422
+    assert client.post(f"/api/questions/{qid}/skip").json()["summary"]["skipped"] == 1
+
+
+def test_answering_questions_never_invalidates_prepared_documents(monkeypatch):
+    """The whole point of the inbox is answering mid-flight; it must not force 100 resumes to be rewritten."""
+    from backend.core import questions, llm
+    before = profile.fingerprint()
+    questions.record(["Do you have experience with Terraform?"], "Acme")
+    qid = questions.open_questions()[0]["id"]
+    monkeypatch.setattr(llm, "complete_json", lambda *a, **k: {"understood": True, "reply": "ok", "answer": "Yes",
+                                                              "store": "capabilities", "capability": "terraform", "yes": True, "skip": False})
+    questions.apply_answer(qid, questions.interpret({"text": "x"}, "yes"))
+    assert profile.fingerprint() == before
