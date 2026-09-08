@@ -162,7 +162,26 @@ def tailor(ctx, job_id: int, provider: str | None = None, replace_existing: bool
         ctx.bump("duplicate"); return None
     prompt = f"PROFILE (ground truth):\n{prof_text}\n\nSCORING HINTS: {hints}\n\nJOB:\n{jt}"
     from backend.core.validation import TailoredResume, FactCheck
-    out = TailoredResume.model_validate(llm.complete_json("tailor", prompt, TAILOR_SYSTEM, provider=provider)).validate_profile(profile.load())
+    employers = [e["company"] for e in profile.load()["experience"]]
+    categories = list(profile.load()["skills"])
+
+    def _tailor(text: str, cached: bool = True):
+        """One attempt, then one corrective retry. A dropped field or a mis-keyed employer is the model slipping, not a
+        reason to lose the job: quoting the exact complaint back to it recovers almost all of them."""
+        last = None
+        for attempt in range(2):
+            try:
+                raw = llm.complete_json("tailor", text, TAILOR_SYSTEM, provider=provider, use_cache=cached and attempt == 0)
+                return TailoredResume.model_validate(raw).validate_profile(profile.load())
+            except Exception as e:  # noqa: BLE001 — pydantic validation or an unknown employer/skill key
+                last = e
+                text = (text + f"\n\nYOUR PREVIOUS ANSWER WAS REJECTED: {str(e)[:400]}\n"
+                                f"Return every required key. Use these employer names exactly as keys of experience_bullets: "
+                                f"{employers}. Use only these skill category names in skills_order: {categories}.")
+                ctx.log("warn", f"tailor output rejected for {company}; asking again ({str(e)[:90]})")
+        raise last
+
+    out = _tailor(prompt)
     def _check(o):
         ci = json.dumps({k: o.get(k) for k in ("headline", "summary", "experience_bullets", "cover_note")}, indent=1)
         return FactCheck.model_validate(llm.complete_json("factcheck", f"PROFILE:\n{prof_text}\n\nCANDIDATE OUTPUT:\n{ci}", FACTCHECK_SYSTEM, use_cache=False)).model_dump()
@@ -170,7 +189,7 @@ def tailor(ctx, job_id: int, provider: str | None = None, replace_existing: bool
     if not fc.get("ok", False) and fc.get("violations"):
         ctx.log("warn", f"fact-check flagged {len(fc['violations'])} claim(s) for {company}; repairing")
         fix = prompt + "\n\nREMOVE OR REWRITE THESE UNSUPPORTED CLAIMS:\n" + "\n".join(f"- {v.get('claim')}: {v.get('why')}" for v in fc["violations"])
-        out = TailoredResume.model_validate(llm.complete_json("tailor", fix, TAILOR_SYSTEM, provider=provider, use_cache=False)).validate_profile(profile.load())
+        out = _tailor(fix, cached=False)
         fc = _check(out)
     if fc.get("ok") is not True or fc.get("violations"):
         raise ValueError("Unsupported resume claims remain; application was not queued")
@@ -192,6 +211,17 @@ def tailor(ctx, job_id: int, provider: str | None = None, replace_existing: bool
     with session() as db:
         from sqlalchemy import text
         db.execute(text("BEGIN IMMEDIATE"))
+        # Re-check for a twin here, inside the serialised write. Preparation runs five jobs at once, so a company that
+        # lists one role in three cities had all three checked before any of them existed, and all three were queued.
+        from backend.core.normalize import norm
+        if not previous:
+            for other in db.query(Application).join(Job).filter(Job.company == company, Application.job_id != job_id).all():
+                if norm(other.job.title) == norm(title):
+                    db.get(Job, job_id).status = "skipped"
+                    db.get(Job, job_id).eligibility_reason = f"same role already prepared as job {other.job_id} (listed again for another location)"
+                    ctx.log("info", f"skipped duplicate posting: {company} — {title} (already prepared as job {other.job_id})")
+                    ctx.bump("duplicate")
+                    return None
         j = db.get(Job, job_id)
         platform = ats if ats else (source if source in PLATFORM_SKILLS else "web")
         app = Application(job_id=j.id, platform=platform, method=method, status="pending_review", resume_path=pdf,

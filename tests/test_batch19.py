@@ -675,3 +675,72 @@ def test_user_stop_really_stops_everything():
     finally:
         registry.COLLECTORS.clear(); registry.COLLECTORS.update(original)
     assert ran == ["discover"], "pressing Stop must not start a new stage"
+
+
+def test_a_rejected_tailor_answer_is_retried_not_lost(monkeypatch):
+    """A dropped field or a mis-keyed employer is the model slipping; quoting the complaint back recovers the job."""
+    from backend.app.models import Job, Application
+    from backend.core import pipeline, llm, resume, runner
+    with session() as db:
+        j = Job(dedupe_key="t1", source="greenhouse", company="Acme", title="AI Engineer", url="https://x/1",
+                description="d" * 400, eligible=True, fit_score=90, status="scored")
+        db.add(j); db.flush(); jid = j.id
+    good = {"headline": "h", "summary": "s", "skills_order": [], "experience_bullets": {}, "cover_note": "c", "why_company": "w"}
+    calls = {"tailor": 0}
+    prompts = []
+
+    def fake(task, prompt, *a, **k):
+        if task != "tailor": return {"ok": True, "violations": []}
+        calls["tailor"] += 1
+        prompts.append(prompt)
+        if calls["tailor"] == 1: return {k: v for k, v in good.items() if k != "cover_note"}   # model drops a field
+        return good
+
+    monkeypatch.setattr(llm, "complete_json", fake)
+    monkeypatch.setattr(resume, "render_pdf", lambda *a, **k: "data/artifacts/x.pdf")
+    ctx = runner.RunContext("pipeline", "test")
+    aid = pipeline.tailor(ctx, jid)
+    assert aid is not None and calls["tailor"] == 2
+    assert "REJECTED" in prompts[1] and "cover_note" in prompts[1]
+    with session() as db:
+        assert db.get(Application, aid).cover_note == "c"
+
+    # a model that never complies still fails, rather than queueing something unchecked
+    calls["tailor"] = 0
+    monkeypatch.setattr(llm, "complete_json", lambda task, *a, **k: ({"ok": True, "violations": []} if task != "tailor"
+                                                                     else {k: v for k, v in good.items() if k != "cover_note"}))
+    with session() as db:
+        j2 = Job(dedupe_key="t2", source="greenhouse", company="Beta", title="AI Engineer", url="https://x/2",
+                 description="d" * 400, eligible=True, fit_score=90, status="scored")
+        db.add(j2); db.flush(); jid2 = j2.id
+    with pytest.raises(Exception):
+        pipeline.tailor(ctx, jid2)
+
+
+def test_parallel_preparation_still_catches_a_repost(monkeypatch):
+    """Preparation runs five jobs at once. A company listing one role in three cities had all three checked before any
+    existed, so all three were queued; the check has to happen inside the serialised write too."""
+    from backend.app.models import Job, Application
+    from backend.core import pipeline, llm, resume, runner
+    with session() as db:
+        for city in ("San Francisco", "Seattle", "New York"):
+            db.add(Job(dedupe_key=f"brex-{city}", source="greenhouse", company="brex",
+                       title="Software Engineer, Forward Deployed Agent Builder", url=f"https://brex/{city}",
+                       location=city, description="d" * 400, eligible=True, fit_score=88, status="scored"))
+        db.flush()
+        ids = [j.id for j in db.query(Job).order_by(Job.id).all()]
+    good = {"headline": "h", "summary": "s", "skills_order": [], "experience_bullets": {}, "cover_note": "c", "why_company": "w"}
+    monkeypatch.setattr(llm, "complete_json", lambda task, *a, **k: good if task == "tailor" else {"ok": True, "violations": []})
+    monkeypatch.setattr(resume, "render_pdf", lambda *a, **k: "data/artifacts/x.pdf")
+    ctx = runner.RunContext("pipeline", "test")
+
+    # simulate the race: every job passes the early check because none has been written yet
+    import backend.core.pipeline as pl
+    results = []
+    for jid in ids:
+        try: results.append(pl.tailor(ctx, jid))
+        except Exception as e: results.append(e)
+    with session() as db:
+        assert db.query(Application).count() == 1, "only one application for a role listed in three cities"
+        skipped = db.query(Job).filter(Job.status == "skipped").all()
+        assert len(skipped) == 2 and all("already prepared" in j.eligibility_reason for j in skipped)
