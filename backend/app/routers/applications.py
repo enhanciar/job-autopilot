@@ -1,6 +1,6 @@
 from __future__ import annotations
 from datetime import datetime
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 from backend.app.db import get_db
@@ -58,6 +58,29 @@ def review_queue(db: Session = Depends(get_db), country: str | None = None, plat
     total = qs.count()
     rows = qs.order_by(Job.fit_score.desc().nullslast(), Application.created_at.asc(), Application.id.asc()).offset((page - 1) * size).limit(size).all()
     return {"total": total, "items": [_out(a) for a in rows]}
+
+
+@router.post("/approve-all")
+def approve_all(body: dict = Body(default={}), db: Session = Depends(get_db)):
+    """Approve every application currently waiting for review, honouring the filters shown on screen.
+
+    Only touches pending_review: anything stopped on a CAPTCHA or an unanswered question still needs you to look at it
+    and say why retrying is safe. Applications whose documents no longer match your profile, or whose fact-check did not
+    pass, are reported back rather than approved.
+    """
+    from sqlalchemy import text
+    from backend.core.submissions import approval_issue
+    db.execute(text("BEGIN IMMEDIATE"))
+    qs = _filtered(db, country=body.get("country"), platform=body.get("platform")).filter(Application.status == "pending_review")
+    approved, blocked = [], []
+    for a in qs.all():
+        issue = approval_issue(a)
+        if issue:
+            blocked.append({"id": a.id, "company": a.job.company if a.job else None, "reason": issue}); continue
+        a.status = "approved"; a.error = None
+        approved.append(a.id)
+    db.commit()
+    return {"approved": len(approved), "blocked": blocked[:20], "blocked_total": len(blocked)}
 
 
 @router.post("/{app_id}/status")

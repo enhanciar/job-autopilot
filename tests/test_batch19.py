@@ -744,3 +744,37 @@ def test_parallel_preparation_still_catches_a_repost(monkeypatch):
         assert db.query(Application).count() == 1, "only one application for a role listed in three cities"
         skipped = db.query(Job).filter(Job.status == "skipped").all()
         assert len(skipped) == 2 and all("already prepared" in j.eligibility_reason for j in skipped)
+
+
+def test_approve_all_respects_filters_and_the_safety_gate():
+    """Bulk approval is still approval: it may not wave through a failed fact-check, a stale document, or an
+    application that stopped on a CAPTCHA and needs a human to say why retrying is safe."""
+    from fastapi.testclient import TestClient
+    from backend.app.main import app as api_app
+    from backend.app.models import Job, Application
+    with session() as db:
+        def add(company, country, status, factcheck=True, stale=False):
+            j = Job(dedupe_key=company, source="greenhouse", company=company, title="AI Engineer",
+                    url=f"https://x/{company}", country=country, eligible=True, fit_score=90)
+            db.add(j); db.flush()
+            answers = {"factcheck": {"ok": factcheck, "violations": [] if factcheck else [{"claim": "c", "why": "w"}]},
+                       "profile_hash": "stale" if stale else profile.fingerprint()}
+            db.add(Application(job_id=j.id, platform="greenhouse", method="ats_form", status=status, answers=answers))
+        add("good-in", "India", "pending_review")
+        add("good-us", "United States", "pending_review")
+        add("bad-factcheck", "India", "pending_review", factcheck=False)
+        add("stale-docs", "India", "pending_review", stale=True)
+        add("needs-me", "India", "needs_human")
+
+    client = TestClient(api_app)
+    r = client.post("/api/applications/approve-all", json={"country": "India"}).json()
+    assert r["approved"] == 1, r                      # only the sound Indian one
+    assert r["blocked_total"] == 2 and {b["company"] for b in r["blocked"]} == {"bad-factcheck", "stale-docs"}
+    with session() as db:
+        by_company = {a.job.company: a.status for a in db.query(Application).all()}
+        assert by_company["good-in"] == "approved"
+        assert by_company["good-us"] == "pending_review"      # outside the filter
+        assert by_company["needs-me"] == "needs_human"        # never swept up
+        assert by_company["bad-factcheck"] == "pending_review"
+
+    assert client.post("/api/applications/approve-all", json={}).json()["approved"] == 1   # the US one

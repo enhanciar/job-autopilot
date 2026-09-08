@@ -10,14 +10,50 @@ import { ExternalLink } from 'lucide-react'
 export default function Review() {
   const [country, setCountry] = useState('')
   const [platform, setPlatform] = useState('')
+  const [confirming, setConfirming] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [result, setResult] = useState<{ approved: number; blocked: { id: number; company: string | null; reason: string }[]; blocked_total: number } | null>(null)
   const { page, setPage } = usePage(JSON.stringify([country, platform]))
   const { data, err, refresh } = usePoll(() => api.review({ country: country || undefined, platform: platform || undefined, size: 50, page }), 8000, [country, platform, page])
   const { data: facets } = usePoll(api.appFacets, 15000)
+  const approveAll = async () => {
+    setBusy(true); setResult(null)
+    try {
+      const r = await api.approveAll({ country: country || undefined, platform: platform || undefined })
+      setResult(r); setConfirming(false); refresh()
+    } catch (e) { setResult({ approved: 0, blocked: [{ id: 0, company: null, reason: String(e) }], blocked_total: 1 }) }
+    finally { setBusy(false) }
+  }
+  const scope = [country, platform].filter(Boolean).join(' · ') || 'every country and platform'
   return (
     <Page title="Review queue" sub={`${data?.total ?? 0} waiting · Approve → the apply worker submits it. needs-human = CAPTCHA or unknown question.`}
       actions={<div className="flex gap-2">
         <select className="input" value={country} onChange={e => setCountry(e.target.value)}><option value="">All countries</option>{Object.entries(facets?.country ?? {}).sort((a, b) => b[1] - a[1]).map(([k, n]) => <option key={k} value={k}>{k} ({n})</option>)}</select>
-        <select className="input" value={platform} onChange={e => setPlatform(e.target.value)}><option value="">All platforms</option>{Object.entries(facets?.platform ?? {}).sort((a, b) => b[1] - a[1]).map(([k, n]) => <option key={k} value={k}>{k} ({n})</option>)}</select></div>}>
+        <select className="input" value={platform} onChange={e => setPlatform(e.target.value)}><option value="">All platforms</option>{Object.entries(facets?.platform ?? {}).sort((a, b) => b[1] - a[1]).map(([k, n]) => <option key={k} value={k}>{k} ({n})</option>)}</select>
+        <button className="btn btn-primary" disabled={busy || !data?.total} onClick={() => setConfirming(true)}>Approve all</button></div>}>
+
+      {confirming && (
+        <div className="card border border-amber-500/40 space-y-3">
+          <div className="font-medium text-amber-200">Approve every application waiting for review in {scope}?</div>
+          <p className="text-sm text-zinc-300">
+            The apply worker will submit these to real employers the next time it runs. This cannot be taken back once a
+            form is submitted. Applications stopped on a CAPTCHA or an unanswered question are not included: those still
+            need you. Nothing is sent until you start the apply worker.
+          </p>
+          <div className="flex gap-2">
+            <button className="btn btn-primary" disabled={busy} onClick={approveAll}>{busy ? 'Approving…' : `Yes, approve them`}</button>
+            <button className="btn" disabled={busy} onClick={() => setConfirming(false)}>Cancel</button>
+          </div>
+        </div>)}
+
+      {result && (
+        <div className="card space-y-2" role="status">
+          <div className="text-emerald-300">{result.approved} approved. Start the apply worker on the Platforms page to submit them.</div>
+          {result.blocked_total > 0 && <div className="text-sm text-amber-300">
+            {result.blocked_total} could not be approved:
+            <ul className="list-disc pl-5 mt-1 text-zinc-300">{result.blocked.map(b => <li key={b.id}>{b.company ?? `#${b.id}`}: {b.reason}</li>)}</ul>
+          </div>}
+        </div>)}
       {!data?.items.length && <Empty text="Queue is empty. Once the tailor step runs, applications appear here for one-click approval." />}
       <div className="space-y-3">
         {data?.items.map(a => (
