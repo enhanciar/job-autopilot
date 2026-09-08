@@ -60,6 +60,7 @@ def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('action',choices=['backup','report','restore','retention','relink-documents','route-email','link-apply-urls','recheck-answers','clear-stuck'])
     parser.add_argument('--apply',action='store_true',help='write the change; without it the command only reports')
+    parser.add_argument('--statuses',default='needs_human,failed',help='clear-stuck only: which application statuses to clear')
     parser.add_argument('--path',type=Path); parser.add_argument('--destination',type=Path)
     args=parser.parse_args()
     if args.action=='backup':
@@ -70,7 +71,7 @@ def main():
         restore(args.path,args.destination);print('Restored to new destination')
     elif args.action=='clear-stuck':
         if args.apply: print('backup:', backup(config.DATA/'backups'/f'before-clear-{datetime.now():%Y%m%d-%H%M%S}.db'))
-        result=clear_stuck(args.apply)
+        result=clear_stuck(args.apply, tuple(x.strip() for x in args.statuses.split(',') if x.strip()))
         print(json.dumps({'applications_deleted':result['deleted'],'jobs_protected_from_reapplying':len(result['protected_jobs']),'jobs_marked_skipped':result['skipped_jobs']},indent=2))
         if not args.apply: print('Nothing was written. Re-run with --apply.')
     elif args.action=='recheck-answers':
@@ -210,14 +211,15 @@ def recheck_answers(apply: bool = False) -> dict:
     return report
 
 
-def clear_stuck(apply: bool = False) -> dict:
+def clear_stuck(apply: bool = False, statuses=("needs_human", "failed")) -> dict:
     """Delete applications that stopped on a human step, and stop their jobs coming straight back.
 
     Two safeguards, because deleting the record is the only thing that remembers we ever touched an employer:
       * a job whose application may already have reached the employer (submit was pressed, no confirmation seen) is marked
         'applied', never 'skipped', so a later run cannot send that employer a second application;
       * every other job is marked 'skipped', otherwise the next run re-tailors the same posting and it gets stuck again.
-    Confirmed submissions, replies and anything waiting for your approval are left alone. Back up before using --apply.
+    Confirmed submissions and replies are never touched. `statuses` chooses what to clear; it defaults to the stalled ones
+    and can include 'pending_review' or 'approved' when you want a completely empty queue. Back up before using --apply.
     """
     from datetime import datetime
     from backend.app.db import session
@@ -225,7 +227,8 @@ def clear_stuck(apply: bool = False) -> dict:
     uncertain = ("no confirmation text", "submitting", "unverified", "could not be verified")
     report = {"deleted": 0, "protected_jobs": [], "skipped_jobs": 0, "backup": None}
     with session() as db:
-        rows = db.query(Application).filter(Application.status.in_(["needs_human", "failed"])).all()
+        safe = set(statuses) - {"submitted", "replied", "interview", "offer", "rejected", "submitting", "sending", "assisting"}
+        rows = db.query(Application).filter(Application.status.in_(safe)).all() if safe else []
         for a in rows:
             maybe_sent = any(w in (a.error or "").lower() for w in uncertain) or a.submitted_at is not None
             report["deleted"] += 1
