@@ -1106,3 +1106,28 @@ def test_look_at_form_needs_a_posting_to_open():
     qid = questions.open_questions()[0]["id"]
     with pytest.raises(ValueError, match="not linked to a posting"):
         questions.look_at_form(qid, RunContext("service", "test"))
+
+
+def test_sponsorship_type_is_derived_from_citizenship_and_the_job_country():
+    """'What sponsorship would you require' asks for a permit name. One stored answer cannot serve every country, and
+    the sentence contains 'authorized to work', so the yes/no rules used to answer it 'No'."""
+    from backend.core.apply import forms
+    question = "If you are not authorized to work at the stated location, what sponsorship would you require for the role?"
+    log = lambda *a, **k: None
+    expected = {"India": "None", "United States": "H-1B", "United Kingdom": "Skilled Worker",
+                "Germany": "Blue Card", "Singapore": "Employment Pass"}
+    for country, fragment in expected.items():
+        forms.CTX.clear(); forms.CTX["country"] = country
+        answer = forms.answer_question(question, "", None, log)
+        assert answer and fragment in answer, f"{country}: {answer}"
+    # the plain yes/no questions still answer yes/no, and correctly per country
+    forms.CTX["country"] = "India"
+    assert forms.answer_question("Will you require visa sponsorship?", "", None, log) == "No"
+    assert forms.answer_question("Are you legally authorized to work here?", "", None, log) == "Yes"
+    forms.CTX["country"] = "United States"
+    assert forms.answer_question("Will you require visa sponsorship?", "", None, log) == "Yes"
+    assert forms.answer_question("Are you legally authorized to work here?", "", None, log) == "No"
+    # an unknown country stays with the human rather than guessing a permit
+    forms.CTX["country"] = "Unknown"
+    assert forms.answer_question(question, "", None, log) is None
+    forms.CTX.clear()

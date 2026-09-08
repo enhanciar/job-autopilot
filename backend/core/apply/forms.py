@@ -39,6 +39,35 @@ def question_country(label: str) -> str | None:
     return None
 
 
+# What an Indian passport holder actually needs to work in each place. A single stored answer cannot serve these: the
+# honest answer to "what sponsorship would you require" is "none" at home and a named visa abroad.
+WORK_PERMIT = {
+    "india": "None — I am an Indian citizen and can work in India without sponsorship",
+    "united states": "H-1B (or cap-exempt equivalent); I would need US work sponsorship",
+    "united kingdom": "Skilled Worker visa (UK sponsorship required)",
+    "germany": "EU Blue Card / German work permit",
+    "netherlands": "Highly Skilled Migrant permit (EU Blue Card)",
+    "europe": "EU Blue Card or the local equivalent work permit",
+    "ireland": "Critical Skills Employment Permit",
+    "france": "Talent Passport / EU Blue Card",
+    "switzerland": "Swiss work permit (B permit)",
+    "canada": "Canadian work permit (LMIA or Global Talent Stream)",
+    "australia": "Skills in Demand visa (subclass 482)",
+    "singapore": "Employment Pass",
+    "japan": "Engineer / Specialist in Humanities work visa",
+    "uae": "UAE employment visa",
+}
+SPONSORSHIP_TYPE_RX = re.compile(r"(what|which|type of|kind of)[^?]{0,40}\b(sponsorship|visa|work permit|authoriz)", re.I)
+
+
+def sponsorship_type(country: str | None) -> str | None:
+    """The permit this candidate would need in that country, or None when the country is not known."""
+    key = (country or "").strip().lower()
+    if key in ("", "unknown", "remote (worldwide)"): return None
+    if key == "europe (remote)": key = "europe"
+    return WORK_PERMIT.get(key)
+
+
 def _country_aware(label: str) -> str | None:
     """Work-authorization / sponsorship answers depend on where the job is. India = authorized, no sponsorship; elsewhere the reverse.
     A country named in the question wins over the job's location."""
@@ -47,6 +76,10 @@ def _country_aware(label: str) -> str | None:
     # Unknown/ambiguous jurisdiction is a human decision, not an implicit foreign country.
     if not c or c in ("unknown", "remote (worldwide)", "europe (remote)"): return None
     in_india = c == "india"
+    # "What sponsorship would you require?" wants the name of a permit, not yes or no. Check it before the yes/no rules,
+    # which would otherwise answer it "No" because the sentence also contains "authorized to work".
+    if SPONSORSHIP_TYPE_RX.search(l):
+        return sponsorship_type(c)
     if re.search(r"authori[sz]ed to work|legally (able|eligible) to work|right to work|work authori[sz]ation|eligible to work", l):
         return "Yes" if in_india else "No"
     if re.search(r"sponsorship|sponsor", l) and re.search(r"require|need|will you", l):
