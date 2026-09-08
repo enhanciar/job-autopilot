@@ -785,6 +785,21 @@ def payment_wall(page) -> str | None:
     return None
 
 
+CLOSED_RX = re.compile(r"this job has closed|no longer accepting applications|this (job|position|role|posting) (is|has been) "
+                       r"(closed|filled|no longer available)|position has been filled|applications are closed|"
+                       r"we are no longer accepting", re.I)
+
+
+def job_closed(page) -> str | None:
+    """The employer has taken the posting down. Filling in a form nobody reads wastes a slot and looks like noise."""
+    try:
+        body = page.inner_text("body", timeout=2500)
+    except Exception:
+        return None
+    hit = CLOSED_RX.search(body)
+    return hit.group(0)[:60] if hit else None
+
+
 def has_captcha(page) -> bool:
     """True only for a real challenge the user must solve: Cloudflare/Turnstile interstitials, a visible reCAPTCHA/hCaptcha
     checkbox or image challenge. The invisible reCAPTCHA v3 badge (bottom-right on every Greenhouse page) is NOT a challenge."""

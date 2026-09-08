@@ -1131,3 +1131,51 @@ def test_sponsorship_type_is_derived_from_citizenship_and_the_job_country():
     forms.CTX["country"] = "Unknown"
     assert forms.answer_question(question, "", None, log) is None
     forms.CTX.clear()
+
+
+def test_jobright_style_popup_is_exited_not_accepted():
+    """The Jobright overlay offers EXIT and TRY IT NOW. Pressing the wrong one signs you up for their product."""
+    from backend.core import browser
+    clicked = []
+
+    class Button:
+        def __init__(self, label, present=True): self.label, self.present = label, present
+        def filter(self, **k): return self
+        def count(self): return 1 if self.present else 0
+        @property
+        def first(self): return self
+        def inner_text(self, timeout=None): return self.label
+        def get_attribute(self, name): return ""
+        def click(self, timeout=None): clicked.append(self.label)
+
+    class Page:
+        def __init__(self, buttons): self.buttons = buttons
+        def locator(self, selector):
+            if "role='dialog'" in selector:
+                page = self
+                class Overlays:
+                    def filter(self, **k): return self
+                    def count(self): return 1
+                    @property
+                    def first(self): return page
+                return Overlays()
+            for key, button in self.buttons.items():
+                if key in selector: return button
+            return Button("", present=False)
+        def wait_for_timeout(self, ms): pass
+        keyboard = type("K", (), {"press": lambda self, k: None})()
+
+    assert browser.dismiss_overlay(Page({"exit": Button("EXIT"), "try it now": Button("TRY IT NOW")}))
+    assert clicked == ["EXIT"], clicked
+
+
+def test_a_closed_posting_is_not_filled_in():
+    from backend.core.apply import forms
+
+    class Page:
+        def __init__(self, body): self.body = body
+        def inner_text(self, sel, timeout=None): return self.body
+
+    assert forms.job_closed(Page("69 applicants. This job has closed. Insider Connection @ blcks AI"))
+    assert forms.job_closed(Page("We are no longer accepting applications for this role."))
+    assert forms.job_closed(Page("Apply for this job. Upload your resume. We are hiring.")) is None

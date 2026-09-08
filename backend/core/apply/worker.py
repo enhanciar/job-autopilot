@@ -114,6 +114,7 @@ class ATSApplySkill(BaseSkill):
         from backend.core import browser
         if self.ctx.should_stop():
             raise SkillPaused("stopped by user")
+        browser.dismiss_overlay(page, self.log)   # boards cover their own forms with upsell popups
         w = browser.detect_warning(page)
         if w:
             raise _SiteBlocked(w)
@@ -163,6 +164,14 @@ class ATSApplySkill(BaseSkill):
             pass
         try: page.wait_for_load_state("networkidle", timeout=8000)
         except Exception: pass
+        closed = forms.job_closed(page)
+        if closed:
+            with session() as db:
+                a = db.get(Application, aid)
+                a.status = "needs_human"; a.error = f"the employer has closed this posting ('{closed}')"
+                a.job.status = "expired"
+            self.log("info", f"[{company}] posting is closed; skipping")
+            self.ctx.bump("closed"); return
         wall = forms.payment_wall(page)
         if wall:
             self._fail(aid, f"stopped: this 'apply' leads to a paid subscription page ('{wall}'). Nothing was filled in "

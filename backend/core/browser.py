@@ -234,9 +234,12 @@ def _set_session(platform: str, ok: bool, note: str | None = None):
 
 # Buttons that cost money or change an account. A promotional overlay is closed, never accepted.
 NEVER_CLICK = ("unlock", "upgrade", "subscribe", "buy", "checkout", "start trial", "start free trial", "get turbo",
-               "claim offer", "redeem", "continue to payment", "pay ", "add card", "enable autofill", "install")
+               "claim offer", "redeem", "continue to payment", "pay ", "add card", "enable autofill", "install",
+               "try it now", "try it free", "try for free", "get started", "boost", "see a demo", "book a demo",
+               "learn more", "browse questions", "customize your resume", "build cover letter")
 DISMISS_LABELS = ("maybe later", "no thanks", "no, thanks", "not now", "skip for now", "skip", "dismiss", "close",
-                  "remind me later", "continue for free", "stay on free")
+                  "remind me later", "continue for free", "stay on free", "exit", "got it", "no thank you",
+                  "not interested", "cancel", "ok", "okay", "done", "×", "✕")
 DISMISS_SELECTORS = ("[aria-label='Close']", "[aria-label='close']", "[aria-label='Dismiss']", "button[class*='close' i]",
                      "[data-testid*='close' i]", "[class*='modal' i] [class*='close' i]", "[role='dialog'] button[class*='close' i]")
 
