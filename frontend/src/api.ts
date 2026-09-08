@@ -53,6 +53,8 @@ export const api = {
   review: (f: Record<string, unknown> = {}) => req<{ total: number; items: Application[] }>(`/api/applications/review${qs(f)}`),
   appFacets: () => req<Record<string, Record<string, number>>>('/api/applications/facets'),
   setAppStatus: (id: number, status: string, note?: string) => req(`/api/applications/${id}/status`, { method: 'POST', body: JSON.stringify({ status, note }) }),
+  outreachPeople: (f: Record<string, unknown>) => req<{ total: number; by_company: Record<string, number>; items: { id: number; name: string; title: string | null; company: string; linkedin_url: string | null; email: string | null; email_confidence: string | null; linkedin_state: string | null; email_state: string | null; x_state: string | null; messages: number; roles: string[]; last_sent: string | null }[] }>(`/api/outreach/people${qs(f)}`),
+  outreachFacets: () => req<{ channel: Record<string, number>; pending_by_channel: Record<string, number>; source: Record<string, number>; status: Record<string, number> }>('/api/outreach/facets'),
   approveAll: (f: { country?: string; platform?: string }) => req<{ approved: number; blocked: { id: number; company: string | null; reason: string }[]; blocked_total: number }>('/api/applications/approve-all', { method: 'POST', body: JSON.stringify(f) }),
   outreach: (f: Record<string, unknown>) => req<{ total: number; items: Outreach[] }>(`/api/outreach${qs(f)}`),
   setOutreachStatus: (id: number, status: string) => req(`/api/outreach/${id}/status`, { method: 'POST', body: JSON.stringify({ status }) }),

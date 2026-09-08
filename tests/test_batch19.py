@@ -907,3 +907,56 @@ def test_config_rejects_a_daily_cap_larger_than_its_weekly_cap():
         config.validate(cfg)
     cfg["caps"]["linkedin"]["connects"] = 15
     assert config.validate(cfg)
+
+
+def test_outreach_can_be_viewed_per_channel_and_per_source():
+    from fastapi.testclient import TestClient
+    from backend.app.main import app as api_app
+    from backend.app.models import Job, Contact, Outreach
+    with session() as db:
+        c = Contact(company="Acme", name="Ann", email="a@acme.com"); db.add(c); db.flush()
+        for source, channel in (("greenhouse", "email"), ("greenhouse", "linkedin_connect"),
+                                ("linkedin", "linkedin_connect"), ("naukri", "email")):
+            j = Job(dedupe_key=f"{source}-{channel}", source=source, company="Acme", title="AI Engineer",
+                    url=f"https://x/{source}{channel}")
+            db.add(j); db.flush()
+            db.add(Outreach(job_id=j.id, contact_id=c.id, channel=channel, step=1, status="pending_review"))
+    client = TestClient(api_app)
+    facets = client.get("/api/outreach/facets").json()
+    assert facets["channel"] == {"email": 2, "linkedin_connect": 2}
+    assert facets["pending_by_channel"] == {"email": 2, "linkedin_connect": 2}
+    assert facets["source"] == {"greenhouse": 2, "linkedin": 1, "naukri": 1}
+    assert client.get("/api/outreach?channel=email").json()["total"] == 2
+    assert client.get("/api/outreach?source=greenhouse").json()["total"] == 2
+    assert client.get("/api/outreach?channel=email&source=naukri").json()["total"] == 1
+    assert client.get("/api/outreach?channel=email&source=linkedin").json()["total"] == 0
+
+
+def test_people_view_shows_what_actually_reached_each_person():
+    from fastapi.testclient import TestClient
+    from backend.app.main import app as api_app
+    from backend.app.models import Job, Contact, Outreach
+    with session() as db:
+        j = Job(dedupe_key="p1", source="greenhouse", company="Acme", title="AI Engineer", url="https://x/1")
+        db.add(j); db.flush()
+        def person(name, company, rows):
+            c = Contact(company=company, name=name, title="Recruiter", linkedin_url=f"https://li/in/{name}")
+            db.add(c); db.flush()
+            for channel, status in rows:
+                db.add(Outreach(job_id=j.id, contact_id=c.id, channel=channel, step=1, status=status))
+        person("sent-both", "Acme", [("linkedin_connect", "sent"), ("email", "replied")])
+        person("only-drafted", "Acme", [("linkedin_connect", "pending_review")])
+        person("elsewhere", "Beta", [("email", "bounced")])
+
+    client = TestClient(api_app)
+    data = client.get("/api/outreach/people").json()
+    assert data["total"] == 3 and data["by_company"] == {"Acme": 2, "Beta": 1}
+    by_name = {p["name"]: p for p in data["items"]}
+    assert by_name["sent-both"]["linkedin_state"] == "sent" and by_name["sent-both"]["email_state"] == "replied"
+    assert by_name["only-drafted"]["linkedin_state"] == "pending_review"
+    assert by_name["only-drafted"]["email_state"] is None      # nothing was ever aimed at them by email
+    assert by_name["elsewhere"]["email_state"] == "bounced"
+    assert by_name["sent-both"]["roles"] == ["AI Engineer"]
+
+    assert client.get("/api/outreach/people?company=Acme").json()["total"] == 2
+    assert client.get("/api/outreach/people?q=elsew").json()["total"] == 1
