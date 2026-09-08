@@ -1011,3 +1011,45 @@ def test_choose_option_never_picks_an_untrue_answer(monkeypatch):
     monkeypatch.setattr(llm, "complete_json", lambda *a, **k: {"option": "Invented option"})
     assert forms.choose_option("Anything", ["A", "B"], None, lambda *a: None) is None   # must come from the list
     assert forms.choose_option("Anything", [], "x", lambda *a: None) is None
+
+
+def test_internal_wording_never_becomes_a_separate_question():
+    from backend.core import questions
+    assert questions.strip_internal("Select a verified autocomplete option for How did you hear about us?") == "How did you hear about us?"
+    assert questions.record(["Select a verified autocomplete option for How did you hear about us?"], "Acme") == 1
+    assert questions.record(["How did you hear about us?"], "Beta") == 0      # the same question, not a second one
+    assert questions.open_questions()[0]["times_seen"] == 2
+
+
+def test_profile_answerable_questions_never_reach_the_person():
+    from backend.core import questions
+    questions.record(["How did you hear about us?"], "Acme")                    # answer bank has this
+    questions.record(["Are you authorized to work in the stated location?"], "Acme")   # depends on the job
+    questions.record(["What is your favourite colour?"], "Acme")                # nobody can answer this but them
+    resolved = questions.auto_resolve()
+    settled = {r["question"] for r in resolved}
+    assert "How did you hear about us?" in settled
+    open_now = {q["text"] for q in questions.open_questions()}
+    assert "Are you authorized to work in the stated location?" in open_now, "authorisation differs per country"
+    assert "What is your favourite colour?" in open_now
+
+
+def test_a_bundle_answer_only_settles_what_it_addresses(monkeypatch):
+    from backend.core import questions, llm
+    questions.record(["Do you consent to processing your personal information?"], "Brex")
+    questions.record(["This role requires three days a week in the office. Do you agree?"], "Brex")
+    questions.record(["What is your expected salary in USD?"], "Brex")
+    groups = questions.bundles()
+    assert {g["theme"] for g in groups} >= {"Consents and agreements", "Salary and notice"}
+    assert len(next(g for g in groups if g["theme"] == "Consents and agreements")["ids"]) == 2
+    consents = next(g for g in groups if g["theme"] == "Consents and agreements")
+    assert "1." in consents["prompt"] and "Brex" in consents["prompt"]
+
+    # the reply covers only the first question of the group
+    monkeypatch.setattr(llm, "complete_json", lambda *a, **k: {
+        "answers": [{"n": 1, "answer": "Yes", "store": "declarations"}],
+        "unanswered": [2], "reply": "Stored your consent."})
+    result = questions.answer_bundle(consents["ids"], "yes I consent")
+    assert len(result["stored"]) == 1
+    assert result["still_open"], "a question the reply did not address must stay open"
+    assert questions.summary()["open"] >= 2

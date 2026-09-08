@@ -11,6 +11,36 @@ def list_questions(limit: int = 50):
     return {"summary": questions.summary(), "open": questions.open_questions(limit), "history": questions.history()}
 
 
+@router.get("/bundles")
+def bundles():
+    """The open questions grouped into a few themes, so a handful of replies settles them all."""
+    return {"summary": questions.summary(), "bundles": questions.bundles(), "history": questions.history()}
+
+
+@router.post("/auto")
+def auto():
+    """Close everything the profile already answers."""
+    return {"resolved": questions.auto_resolve(), "summary": questions.summary()}
+
+
+@router.post("/bundle")
+def answer_bundle(body: dict = Body(...)):
+    ids, message = body.get("ids") or [], (body.get("message") or "").strip()
+    if not ids or not message: raise HTTPException(422, "Pick a group and type an answer")
+    questions.log_turn("user", message)
+    try:
+        result = questions.answer_bundle(ids, message)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(502, f"Could not interpret that: {type(e).__name__}")
+    lines = [result["reply"]]
+    for item in result["stored"]: lines.append(f"• {item['detail']}")
+    if result["still_open"]:
+        lines.append("Still open, because your answer did not cover them: " + "; ".join(q[:70] for q in result["still_open"]))
+    text = "\n".join(lines)
+    questions.log_turn("assistant", text)
+    return {"reply": text, "summary": questions.summary(), "bundles": questions.bundles()}
+
+
 @router.post("/chat")
 def chat(body: dict = Body(...)):
     """One turn: your words in, a stored answer out. The reply says exactly what was saved and where."""

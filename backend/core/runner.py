@@ -78,7 +78,7 @@ class RunContext:
 
     def screenshot(self, page, tag: str, full_page: bool = True) -> str:
         """Full page by default: when something is stuck, the part that matters is usually below the fold."""
-        path = config.ARTIFACTS / f"run{self.run_id}_{tag}_{datetime.utcnow().strftime('%H%M%S')}.png"
+        path = config.SCREENSHOTS / f"run{self.run_id}_{tag}_{datetime.utcnow().strftime('%H%M%S')}.png"
         try:
             try:
                 page.screenshot(path=str(path), full_page=full_page)

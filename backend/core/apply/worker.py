@@ -150,10 +150,12 @@ class ATSApplySkill(BaseSkill):
                 self.log("warn", f"expired posting: {company} — {title}"); self.ctx.bump("expired"); return
         except Exception:
             pass
+        self.log("info", f"[{company}] opening the posting")
         page = self._follow_apply_links(page, aid)   # aggregator page -> employer form (up to 3 hops, new tabs handled)
         self.guard(page)
         self._dismiss_cookie_banner(page)
         root = self._form_root(page)                 # embedded Greenhouse/Lever/Ashby iframe, else the page itself
+        self.log("info", f"[{company}] found the application form; filling it in")
         try:   # SPA forms (Ashby, Lever) render after load: wait for a real field or the file input before filling
             root.locator("input[type='file'], input[type='email'], input[name*='email' i], textarea, input[type='text']").first.wait_for(state="visible", timeout=20000)
         except Exception:
@@ -174,11 +176,13 @@ class ATSApplySkill(BaseSkill):
         unanswered = forms.fill_work_history(page, self.log, scope=root)
         unanswered += forms.fill_text_inputs(page, job_text, cover, self.log, scope=root)
         unanswered += forms.fill_selects(page, self.log, scope=root)
+        self.log("info", f"[{company}] attaching the resume")
         uploaded = forms.upload_resume(page, resume_path, self.log, scope=root) if resume_path else False
         self._fill_custom_radios(page, scope=root)
         unanswered += forms.fill_button_choices(page, self.log, scope=root)
         unanswered += forms.fill_checkbox_groups(page, self.log, scope=root)
         unanswered += forms.fill_custom_dropdowns(page, self.log, scope=root)
+        self.log("info", f"[{company}] answering the dropdowns and screening questions")
         forms.refill_phone(page, self.log, scope=root)
         forms.fill_text_inputs(page, job_text, cover, self.log, scope=root, simple_only=True)   # re-fill fields a re-render cleared
         forms.tick_certifications(page, self.log, scope=root)
@@ -202,6 +206,7 @@ class ATSApplySkill(BaseSkill):
             loc = root.locator(sel)
             if loc.count() and loc.first.is_visible():
                 btn = loc.first; break
+        self.log("info", f"[{company}] form complete; looking for the submit button")
         if not btn:
             # No submit here usually means a multi-step form: walk the remaining steps with a learned recipe.
             if self._multi_step(page, root, aid, job_text, cover, resume_path, company, title):

@@ -20,6 +20,7 @@ export type Event = { id: number; run_id: number | null; ts: string; level: stri
 export type Platform = { key: string; name: string; type: string; status: string; login: boolean; modes?: string[]; implemented: boolean; login_supported: boolean; configured: boolean | null; logged_in: boolean | null; session_note: string | null; last_checked: string | null }
 export type OpenQuestion = { id: number; text: string; options: string[] | null; companies: string[]; times_seen: number }
 export type ChatTurn = { role: string; text: string; question_id: number | null }
+export type Bundle = { theme: string; ids: number[]; count: number; asked_by: string[]; prompt: string; questions: OpenQuestion[] }
 type QuestionState = { summary: { open: number; answered: number; skipped: number }; open: OpenQuestion[] }
 export type FullRunPlatform = { key: string; name: string; needs_login: boolean }
 export type Overview = {
@@ -73,6 +74,9 @@ export const api = {
   platforms: () => req<Platform[]>('/api/platforms'),
   llmStatus: () => req<Record<string, boolean>>('/api/platforms/llm'),
   openLogin: (key: string) => req<{ run_id: number }>(`/api/platforms/${key}/login`, { method: 'POST' }),
+  questionBundles: () => req<{ summary: { open: number; answered: number; skipped: number }; bundles: Bundle[]; history: ChatTurn[] }>('/api/questions/bundles'),
+  autoAnswer: () => req<{ resolved: { question: string; answer: string }[]; summary: { open: number; answered: number; skipped: number } }>('/api/questions/auto', { method: 'POST' }),
+  answerBundle: (ids: number[], message: string) => req<{ reply: string; summary: { open: number; answered: number; skipped: number }; bundles: Bundle[] }>('/api/questions/bundle', { method: 'POST', body: JSON.stringify({ ids, message }) }),
   questions: () => req<QuestionState & { history: ChatTurn[] }>('/api/questions'),
   answerQuestion: (question_id: number, message: string) => req<QuestionState & { reply: string; next: OpenQuestion | null }>('/api/questions/chat', { method: 'POST', body: JSON.stringify({ question_id, message }) }),
   skipQuestion: (id: number) => req<QuestionState & { next: OpenQuestion | null }>(`/api/questions/${id}/skip`, { method: 'POST' }),
@@ -126,4 +130,4 @@ export const ago = (iso: string | null) => {
   if (s < 86400) return `${Math.floor(s / 3600)}h ago`; return `${Math.floor(s / 86400)}d ago`
 }
 
-export const artifactUrl = (path: string) => '/' + path.replace(/^\/?data\/artifacts\//, 'artifacts/').replace(/^\//, '')
+export const artifactUrl = (path: string) => '/' + path.replace(/^\/?data\/artifacts\//, 'artifacts/').replace(/^\/?screenshots\//, 'screenshots/').replace(/^\//, '')

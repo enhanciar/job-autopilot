@@ -7,12 +7,13 @@ from dotenv import load_dotenv
 ROOT = Path(__file__).resolve().parents[2]
 DATA = Path(os.environ.get("AUTOPILOT_DATA_DIR", str(ROOT / "data")))
 ARTIFACTS = DATA / "artifacts"
+SCREENSHOTS = ROOT / "screenshots"     # kept outside data/ so they are easy to clear out
 PROFILES = DATA / "profiles"
 CONFIG_PATH = ROOT / "config.yaml"
 DB_PATH = DATA / "autopilot.db"
 
 load_dotenv(ROOT / ".env")
-for d in (DATA, ARTIFACTS, PROFILES):
+for d in (DATA, ARTIFACTS, PROFILES, SCREENSHOTS):
     d.mkdir(parents=True, exist_ok=True)
 
 

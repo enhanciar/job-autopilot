@@ -27,3 +27,4 @@ data/*.lock
 data/resume_base.pdf
 .pytest_cache/
 .claude/
+screenshots/

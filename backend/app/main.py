@@ -38,12 +38,13 @@ for router in (jobs, applications, outreach, runs, stats, platforms, settings, p
 def health(): return {"ok": True, "execution": "separate_worker"}
 
 app.mount("/artifacts", StaticFiles(directory=str(config.ARTIFACTS)), name="artifacts")
+app.mount("/screenshots", StaticFiles(directory=str(config.SCREENSHOTS)), name="screenshots")
 dist = config.ROOT / "frontend" / "dist"
 
 @app.get("/{path:path}")
 def frontend(path: str):
     from fastapi import HTTPException
-    if path.startswith(("api/", "artifacts/", "data/")): raise HTTPException(404)
+    if path.startswith(("api/", "artifacts/", "screenshots/", "data/")): raise HTTPException(404)
     requested = (dist / path).resolve()
     if dist.resolve() not in requested.parents and requested != dist.resolve(): raise HTTPException(404)
     if requested.is_file(): return FileResponse(requested)
