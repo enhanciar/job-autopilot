@@ -33,6 +33,9 @@ discover  →  hydrate  →  score  →  prepare  →  YOU REVIEW  →  apply  �
 8. **Track.** Applications, outreach and every run's log are in the dashboard; optional Google Sheets sync.
 
 ### Safety rules built in
+- Money is never spent. Some job boards route "Apply" into a paid-subscription checkout; any page showing a plan, a
+  price, a payment method or a recurring charge stops that application on the spot. Nothing is filled in, no button is
+  pressed, and the application is handed back to you with the screenshot.
 - Every fact comes from `data/master_profile.yaml`. Generated text is fact-checked; unsupported claims block the document.
 - Nothing is sent without approval. Approval covers the exact text; if a message changes it goes back to review.
 - CAPTCHAs, bot checks and account creation are never bypassed. Security codes are typed only after you supply them.

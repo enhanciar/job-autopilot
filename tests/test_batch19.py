@@ -467,3 +467,34 @@ def test_browser_opens_a_tab_when_chrome_has_none(monkeypatch):
     with pytest.raises(RuntimeError, match="no browser context"):
         with browser.open_context("ats"):
             pass
+
+
+class FakePage:
+    """Minimal page stand-in for guard tests: body text plus visible controls by label."""
+    def __init__(self, body, controls=()):
+        self._body, self._controls = body, [c.lower() for c in controls]
+    def inner_text(self, sel, timeout=None): return self._body
+    def locator(self, selector):
+        import re as _re
+        wanted = _re.findall(r"has-text\('([^']*)'\)", selector)
+        page = self
+        class L:
+            def filter(self, **k): return self
+            def count(self): return sum(1 for w in wanted if w.lower() in page._controls)
+        return L()
+
+
+def test_payment_pages_stop_the_application():
+    """A board that routes Apply through a paid plan must never be filled in or clicked through."""
+    from backend.core.apply import forms
+    wwr = ("Step 3 of 3. Billed now $29.95. You'll be charged $29.95 on September 8, 2026 and monthly for the remaining "
+           "months of this 12-month commitment. The plan auto-renews annually unless cancelled. Payment Method. "
+           "I agree to the Terms & Conditions and the renewal terms above.")
+    assert forms.payment_wall(FakePage(wwr))
+    assert forms.payment_wall(FakePage("Choose your plan. $14.95/month subscription. Subtotal $29.95"))
+    assert forms.payment_wall(FakePage("Upgrade to premium for $9.99 per month and unlock priority support. Order summary"))
+    assert forms.payment_wall(FakePage("Complete your purchase for $49", controls=["Pay now"]))
+    # ordinary application pages are untouched
+    assert forms.payment_wall(FakePage("Apply for this position. Upload your resume. Expected salary $120,000 per year.")) is None
+    assert forms.payment_wall(FakePage("Tell us about yourself. Full name, email, phone. Submit application")) is None
+    assert forms.payment_wall(FakePage("What are your salary expectations? We offer $150,000/year plus equity.")) is None

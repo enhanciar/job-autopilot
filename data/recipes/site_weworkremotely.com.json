@@ -1,0 +1,44 @@
+{
+  "family": "site:weworkremotely.com",
+  "steps": [
+    {
+      "step_name": "subscription_paywall",
+      "fields": [],
+      "advance": {
+        "selector": "button:has-text('Subscribe to TopAccess')",
+        "label": "Subscribe to TopAccess"
+      },
+      "advanced_when": {
+        "text_gone": "You're almost there",
+        "text_appears": ""
+      },
+      "is_final": false,
+      "confirmation": "",
+      "signature": "258788259b6382b36f356d28a779af61f63fd39ab12aaa72cbe425511fc44302"
+    },
+    {
+      "step_name": "Billing - TopAccess Subscription",
+      "fields": [
+        {
+          "selector": "#job_seeker_subscription_commitment_accepted",
+          "kind": "checkbox",
+          "question": "I agree to the Terms & Conditions and the renewal terms above.",
+          "answer_key": "terms_accepted"
+        }
+      ],
+      "advance": {
+        "selector": "button:has-text('Card')",
+        "label": "Card"
+      },
+      "advanced_when": {
+        "text_gone": "You're almost there",
+        "text_appears": ""
+      },
+      "is_final": false,
+      "confirmation": "",
+      "signature": "f795f31d7cb819d6ee8ab8ce20aca31554f586824fdd59d157ef032802999f1e"
+    }
+  ],
+  "version": 2,
+  "saved_at": "2026-09-08 13:13:28"
+}

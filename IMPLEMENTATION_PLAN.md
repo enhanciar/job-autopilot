@@ -309,3 +309,21 @@ Still remaining (unchanged unless listed): A — Cutshort/Naukri still use the p
 - Live queue: cleared at the user's explicit request (94 stalled, then 16 reviewable) with backups at `data/backups/before-clear-*.db`; 32 questions recovered from the pre-clear backup so the inbox has real content. Applications now: 34 submitted, 3 replied, 0 open.
 - Checks: **67 tests pass** (11 new), frontend build and lint clean, dashboard smoke tests extended with `/api/questions` and `/api/profile` mocks after a null-shape crash in the sidebar. Deployed via `./start.sh`; chat verified live end to end against Claude CLI (capability, free-text and ambiguous replies).
 - Remaining: label extraction still yields stray labels on some forms (filtered at the inbox, not at the source); questions are not yet re-attached to the applications they came from, so answering one does not automatically requeue that application (`ops recheck-answers` does it in bulk); no bulk "answer these 5 similar questions at once" flow.
+
+
+### Batch 22 (Claude, 2026-09-08): first live apply run, and a payment funnel
+- **We Work Remotely routes "Apply" through a paid subscription.** Its own 3-step flow ends on a checkout: $29.95 billed
+  immediately, monthly for a 12-month commitment, auto-renewing, with Apple Pay preselected. The worker reached the final
+  consent checkbox ("I agree to the Terms & Conditions and the renewal terms above") and stopped only because ticking a
+  legal agreement requires an explicit declaration. That was one checkbox away from a payment control.
+- Added `forms.payment_wall(page)`: two or more money/plan/billing phrases, or a payment control next to a price, or a
+  recurring-charge pattern. Checked before the form is touched AND before every recipe step, since the funnel appears at
+  step 2. The application stops as needs_human with the phrase that triggered it; the recipe is marked stale. Regression
+  test covers the real WWR text plus salary-mentioning application pages that must NOT trip it.
+- Run 226 stopped by hand; the in-flight application was reconciled to needs_human (nothing was submitted).
+- Also fixed in this batch: CDP attach failed with "Browser context management is not supported" when the automation
+  Chrome was alive with no window; `open_context` now requests a blank tab first. Resume upload handles drag-and-drop
+  zones via `expect_file_chooser` and verifies the file actually attached rather than assuming. Recipe-step unanswered
+  questions now reach the Questions inbox.
+- **Open question for the user: whether to keep We Work Remotely at all.** Its listings are real, but its apply path is a
+  paywall, so the collector produces jobs that cannot be applied to through it. Applying on the employer's own site works.

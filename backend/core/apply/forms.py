@@ -547,35 +547,114 @@ def tick_certifications(page, log, scope=None) -> int:
     return n
 
 
+def _upload_landed(page, el, scope) -> bool:
+    """Proof the file actually attached: the input holds it, or the page now shows the file name."""
+    try:
+        if el.evaluate("e => e.files && e.files.length > 0"): return True
+    except Exception:
+        pass
+    try:
+        body = (scope or page).inner_text("body", timeout=1500).lower()
+        return ".pdf" in body and "click or drag" not in body
+    except Exception:
+        return False
+
+
 def upload_resume(page, resume_path: str, log, scope=None) -> bool:
+    """Attach the resume. Handles a plain file input, a hidden input behind a drop zone, and drop zones that only
+    respond to a click by opening the OS file chooser."""
     root = scope or page
+    full = str(config.ROOT / resume_path)
     files = root.locator("input[type='file']")
     try:
         files.first.wait_for(state="attached", timeout=10000)
     except Exception:
-        return False
+        files = page.locator("input[type='file']")
+        try: files.first.wait_for(state="attached", timeout=5000)
+        except Exception: return _upload_via_chooser(page, root, full, log)
     last = None
     for attempt in range(3):
         try:
             target = files.first
-            # prefer the input that is inside a resume/CV block when several file inputs exist
+            # prefer the input that sits inside a resume/CV block when several file inputs exist
             for i in range(files.count()):
-                nm = ((files.nth(i).get_attribute("name") or "") + (files.nth(i).get_attribute("id") or "") + (files.nth(i).get_attribute("aria-label") or "")).lower()
-                if re.search(r"resume|cv", nm): target = files.nth(i); break
-            target.set_input_files(str(config.ROOT / resume_path))
+                nm = ((files.nth(i).get_attribute("name") or "") + (files.nth(i).get_attribute("id") or "") +
+                      (files.nth(i).get_attribute("aria-label") or "") + (files.nth(i).get_attribute("accept") or "")).lower()
+                if re.search(r"resume|cv\b|pdf", nm): target = files.nth(i); break
+            target.set_input_files(full)
             page.wait_for_timeout(2500)
             try:
                 body = page.inner_text("body", timeout=2000).lower()
                 if "failed to upload" in body or "upload failed" in body or "error uploading" in body:
-                    log("warn", f"upload attempt {attempt+1}: page reports upload failure; retrying")
+                    log("warn", f"upload attempt {attempt + 1}: page reports upload failure; retrying")
                     page.wait_for_timeout(3000); continue
             except Exception:
                 pass
-            return True
+            if _upload_landed(page, target, root): return True
+            log("warn", f"upload attempt {attempt + 1}: the file did not attach; trying the drop zone")
+            if _upload_via_chooser(page, root, full, log): return True
         except Exception as e:  # noqa: BLE001
             last = e; page.wait_for_timeout(1500)
+    if _upload_via_chooser(page, root, full, log): return True
     log("warn", f"resume upload failed: {last}")
     return False
+
+
+DROPZONE = ("text=/click or drag/i", "text=/drag (and drop|your file)/i", "text=/upload your (resume|cv)/i",
+            "[class*='dropzone']", "[class*='drop-zone']", "[class*='upload']", "button:has-text('Upload')")
+
+
+def _upload_via_chooser(page, root, full_path: str, log) -> bool:
+    """Drop zones that ignore a hidden input still open the file chooser when clicked; answer it directly."""
+    for sel in DROPZONE:
+        try:
+            zone = root.locator(sel).filter(visible=True).first
+            if not zone.count():
+                zone = page.locator(sel).filter(visible=True).first
+            if not zone.count():
+                continue
+            with page.expect_file_chooser(timeout=6000) as chooser:
+                zone.click()
+            chooser.value.set_files(full_path)
+            page.wait_for_timeout(3000)
+            if _upload_landed(page, root.locator("input[type='file']").first, root):
+                log("info", "resume attached through the drop zone")
+                return True
+        except Exception:
+            continue
+    return False
+PAYMENT_SIGNALS = (
+    "billed now", "you'll be charged", "you will be charged", "auto-renews", "auto renews", "renewal terms",
+    "subscription period", "start your subscription", "payment method", "card number", "billing address",
+    "cardholder", "per month", "/month", "monthly for the remaining", "12-month commitment", "upgrade to premium",
+    "choose your plan", "select a plan", "checkout", "order summary", "subtotal",
+)
+PAYMENT_CONTROLS = ("apple pay", "google pay", "pay now", "subscribe", "start free trial", "continue to payment",
+                    "complete purchase", "place order")
+
+
+def payment_wall(page) -> str | None:
+    """A job application never asks for money. Some boards route 'Apply' through a paid-subscription funnel, so any page
+    showing money, a plan or a payment control stops the application instead of being filled in.
+    Returns the phrase that triggered it."""
+    try:
+        body = page.inner_text("body", timeout=2500).lower()
+    except Exception:
+        return None
+    hits = [p for p in PAYMENT_SIGNALS if p in body]
+    if len(hits) >= 2:
+        return hits[0]
+    try:
+        for label in PAYMENT_CONTROLS:
+            control = page.locator(f"button:has-text('{label}'), [role='button']:has-text('{label}')").filter(visible=True)
+            if control.count() and (hits or re.search(r"[$€£₹]\s?\d", body)):
+                return label
+    except Exception:
+        pass
+    if re.search(r"[$€£₹]\s?\d+(\.\d{2})?\s*(/|per\s)?(mo|month|yr|year)", body) and any(
+            w in body for w in ("plan", "subscription", "billed", "payment")):
+        return "recurring charge"
+    return None
 
 
 def has_captcha(page) -> bool:

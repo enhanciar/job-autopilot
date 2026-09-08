@@ -159,8 +159,12 @@ class ATSApplySkill(BaseSkill):
             pass
         try: page.wait_for_load_state("networkidle", timeout=8000)
         except Exception: pass
-        if forms.has_captcha(page):
-            self._fail(aid, "CAPTCHA present; solve it manually then re-approve", page, "needs_human"); return
+        wall = forms.payment_wall(page)
+        if wall:
+            self._fail(aid, f"stopped: this 'apply' leads to a paid subscription page ('{wall}'). Nothing was filled in "
+                            f"and no payment was made. Apply on the employer's own site instead.", page, "needs_human")
+            self.log("warn", f"payment page on {company}; the board routes Apply through a paid plan", platform=self.platform)
+            return
         if page.locator("input[type='password']").filter(visible=True).count() and re.search(r"sign in|log in|login", page.inner_text("body", timeout=3000)[:3000], re.I):
             self._fail(aid, f"site requires an account login ({page.url.split('/')[2]}); log in once in the automation window then re-approve", page, "needs_human"); return
         # basic identity fields first (handles Greenhouse/Lever/Ashby/Workable naming)
@@ -325,7 +329,15 @@ class ATSApplySkill(BaseSkill):
                            page, "needs_human"); return True
             unanswered = recipes.fill_step(page, step, job_text, cover, resume_path, self.log, root=root)
             unanswered += forms.validate_required(page, root)
+            wall = forms.payment_wall(page)
+            if wall:
+                self._fail(aid, f"stopped at step {n + 1}: this flow leads to a paid subscription page ('{wall}'). "
+                                f"Nothing was submitted and no payment was made.", page, "needs_human")
+                recipes.mark_stale(fam, "flow leads to a paid subscription page")
+                return True
             if unanswered:
+                from backend.core import questions
+                questions.record(unanswered, company)      # a multi-step form's questions belong in the inbox too
                 self._fail(aid, f"{fam} step {n + 1} unanswered: " + " | ".join(unanswered[:5]), page, "needs_human"); return True
             if step.get("is_final"):
                 shot = self.ctx.screenshot(page, f"app{aid}_final")
