@@ -202,8 +202,26 @@ class ATSApplySkill(BaseSkill):
             db.get(Application, aid).screenshot_before = shot_before
         unanswered += forms.validate_required(page, root)
         if unanswered:
+            # The script has run out of rules. Hand the same page to the agent, which reads the form and decides what
+            # to do next; it works from the same answer bank and cannot submit, so the verification below still applies.
+            from backend.core.apply import agent
+            self.log("info", f"[{company}] script stopped on {len(unanswered)} field(s); the agent is taking over")
+            outcome = agent.finish_form(page, root, job_text=job_text, cover=cover, log=self.log,
+                                        should_stop=self.ctx.should_stop)
+            if outcome["done"]:
+                self.log("info", f"[{company}] agent finished the form in {outcome['steps']} step(s)")
+                self.ctx.bump("agent_finished")
+                unanswered = forms.validate_required(page, root)
+            else:
+                from backend.core import questions
+                questions.record(unanswered, company, job_id)   # answer it once, in the Questions page
+                self.ctx.bump("agent_blocked")
+                self._fail(aid, f"agent stopped: {outcome['blocked']}. Open fields: " + " | ".join(unanswered[:5]),
+                           page, "needs_human")
+                return
+        if unanswered:
             from backend.core import questions
-            questions.record(unanswered, company, job_id)  # collect them so they can be answered once, in the Questions page
+            questions.record(unanswered, company, job_id)
             self._fail(aid, "Unanswered fields: " + " | ".join(unanswered[:8]), page, "needs_human"); return
         if not uploaded and root.locator("input[type='file']").count():
             self._fail(aid, "resume upload field present but upload failed", page, "needs_human"); return
@@ -221,7 +239,18 @@ class ATSApplySkill(BaseSkill):
             # No submit here usually means a multi-step form: walk the remaining steps with a learned recipe.
             if self._multi_step(page, root, aid, job_text, cover, resume_path, company, title, job_id):
                 return
-            self._fail(aid, "no submit button found", page, "needs_human"); return
+            from backend.core.apply import agent
+            self.log("info", f"[{company}] no submit button; the agent is taking over")
+            outcome = agent.finish_form(page, root, job_text=job_text, cover=cover, log=self.log,
+                                        should_stop=self.ctx.should_stop)
+            if outcome["done"]:
+                for sel in SUBMIT_SELECTORS:
+                    loc = root.locator(sel)
+                    if loc.count() and loc.first.is_visible():
+                        btn = loc.first; break
+            if not btn:
+                self._fail(aid, f"no submit button found ({outcome.get('blocked') or 'agent found none either'})",
+                           page, "needs_human"); return
         self.guard(page)
         humanize.human_click(page, btn)
         time.sleep(4); humanize.pause()
