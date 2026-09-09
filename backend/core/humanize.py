@@ -69,12 +69,22 @@ def human_move(page, x: float, y: float, start: tuple[float, float] | None = Non
 
 
 def human_click(page, locator, *, jitter: int = 4):
-    """Scroll into view, move along a curve, tiny jitter, click."""
-    locator.scroll_into_view_if_needed()
+    """Scroll into view, move along a curve, tiny jitter, click.
+
+    The scroll is capped: an element inside a form that will not settle used to hold the default 30 seconds, so one
+    stubborn field could cost half an hour across a form. If it will not scroll, click it anyway.
+    """
+    try:
+        locator.scroll_into_view_if_needed(timeout=3000)
+    except Exception:
+        pass
     time.sleep(random.uniform(0.2, 0.7))
-    box = locator.bounding_box()
+    try:
+        box = locator.bounding_box(timeout=2000)
+    except Exception:
+        box = None
     if not box:
-        locator.click()
+        locator.click(timeout=5000)
         return
     x = box["x"] + box["width"] / 2 + random.uniform(-jitter, jitter)
     y = box["y"] + box["height"] / 2 + random.uniform(-jitter, jitter)

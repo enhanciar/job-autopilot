@@ -401,7 +401,9 @@ def read_options(page, question: str) -> dict:
                 continue
         for score, i, label in sorted(ranked, reverse=True)[:2]:
             box = boxes.nth(i)
-            box.scroll_into_view_if_needed(); page.wait_for_timeout(300)
+            try: box.scroll_into_view_if_needed(timeout=3000)
+            except Exception: pass
+            page.wait_for_timeout(300)
             box.click(); page.wait_for_timeout(1400)
             opts = page.locator("[role='option'], [class*='-option'], li[role='option']").filter(visible=True)
             found = _clean_options([opts.nth(k).inner_text(timeout=600) for k in range(min(opts.count(), 30))], question)

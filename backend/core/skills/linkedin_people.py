@@ -488,7 +488,9 @@ class LinkedInPeopleSkill(BaseSkill):
         """Human-looking approach (scroll + curved mouse move), then a real DOM click: LinkedIn's Connect/Message controls are
         links whose handlers ignore synthetic mouse-down/up pairs."""
         try:
-            locator.scroll_into_view_if_needed(); box = locator.bounding_box()
+            try: locator.scroll_into_view_if_needed(timeout=3000)
+            except Exception: pass
+            box = locator.bounding_box()
             if box: humanize.human_move(page, box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
         except Exception:
             pass

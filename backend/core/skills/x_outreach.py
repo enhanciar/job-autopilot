@@ -84,7 +84,8 @@ class XOutreachSkill(BaseSkill):
         """Human approach (scroll + curved mouse move) then a real DOM click: X's React controls ignore some
         synthetic mouse-down/up pairs (same problem LinkedIn had)."""
         try:
-            locator.scroll_into_view_if_needed()
+            try: locator.scroll_into_view_if_needed(timeout=3000)
+            except Exception: pass
             box = locator.bounding_box()
             if box:
                 humanize.human_move(page, box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)

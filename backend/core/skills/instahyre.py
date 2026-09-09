@@ -65,7 +65,9 @@ class InstahyreSkill(BaseSkill):
             if self.ctx.should_stop(): break
             card = self._cards(page).nth(i)
             try:
-                card.scroll_into_view_if_needed(); humanize.pause("action_delay_s")
+                try: card.scroll_into_view_if_needed(timeout=3000)
+                except Exception: pass
+                humanize.pause("action_delay_s")
                 info = self._open_modal(page, card)
                 if info and info["title"]:
                     items.append({"company": info["company"], "title": info["title"], "url": info["url"], "apply_url": info["url"], "location": info["location"],

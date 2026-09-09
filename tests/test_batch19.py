@@ -1287,3 +1287,20 @@ def test_a_group_of_options_is_one_question_not_twelve():
 
     missing = forms.validate_required(None, Root())
     assert missing == ["Please confirm whether any of the below applies to you."]
+
+
+def test_a_stubborn_element_cannot_hold_a_form_for_thirty_seconds():
+    """One field that will not scroll used to cost the default 30s, and a form full of them cost half an hour."""
+    from backend.core import humanize
+    calls = {}
+
+    class Locator:
+        def scroll_into_view_if_needed(self, timeout=None):
+            calls["scroll_timeout"] = timeout
+            raise TimeoutError("never settles")
+        def bounding_box(self, timeout=None): return None
+        def click(self, timeout=None): calls["clicked"] = timeout
+
+    humanize.human_click(None, Locator())
+    assert calls["scroll_timeout"] == 3000, "the scroll must be capped"
+    assert calls["clicked"] == 5000, "a click still happens even when scrolling fails"
