@@ -676,16 +676,24 @@ def tick_certifications(page, log, scope=None) -> int:
 
 
 def _upload_landed(page, el, scope) -> bool:
-    """Proof the file actually attached: the input holds it, or the page now shows the file name."""
+    """Proof the file actually attached.
+
+    Two ways: the input still holds it, or the page now shows the file name. The scope may be a frame rather than a
+    page, which has no inner_text at all, so the second check is done with a locator instead — getting that wrong made
+    every successful Greenhouse upload look like a failure and sent it round the retry loop until it timed out.
+    """
     try:
         if el.evaluate("e => e.files && e.files.length > 0"): return True
     except Exception:
         pass
-    try:
-        body = (scope or page).inner_text("body", timeout=1500).lower()
-        return ".pdf" in body and "click or drag" not in body
-    except Exception:
-        return False
+    for probe in ("text=/\\.pdf\\b/i", "[class*='filename']", "[class*='file-name']", "[class*='attachment']"):
+        for where in (scope, page):
+            if where is None: continue
+            try:
+                if where.locator(probe).filter(visible=True).count(): return True
+            except Exception:
+                continue
+    return False
 
 
 def upload_resume(page, resume_path: str, log, scope=None) -> bool:

@@ -1304,3 +1304,30 @@ def test_a_stubborn_element_cannot_hold_a_form_for_thirty_seconds():
     humanize.human_click(None, Locator())
     assert calls["scroll_timeout"] == 3000, "the scroll must be capped"
     assert calls["clicked"] == 5000, "a click still happens even when scrolling fails"
+
+
+def test_upload_verification_works_on_a_frame_not_just_a_page():
+    """The form often lives in an iframe, and a frame has no inner_text. Calling it anyway made every successful
+    Greenhouse upload look like a failure, so it retried until it timed out."""
+    from backend.core.apply import forms
+
+    class Frame:
+        """A frame exposes locator() but not inner_text()."""
+        def __init__(self, shows): self.shows = shows
+        def locator(self, selector):
+            shows = self.shows
+            class L:
+                def filter(inner, **k): return inner
+                def count(inner): return 1 if shows else 0
+            return L()
+
+    class Input:
+        def __init__(self, files): self.files = files
+        def evaluate(self, js): return self.files > 0
+
+    # the input still holding the file is proof enough
+    assert forms._upload_landed(None, Input(1), Frame(False))
+    # the input cleared by the site, but the filename now shows in the frame
+    assert forms._upload_landed(None, Input(0), Frame(True))
+    # neither: a real failure
+    assert not forms._upload_landed(None, Input(0), Frame(False))
