@@ -1026,12 +1026,19 @@ def test_profile_answerable_questions_never_reach_the_person():
     questions.record(["How did you hear about us?"], "Acme")                    # answer bank has this
     questions.record(["Are you authorized to work in the stated location?"], "Acme")   # depends on the job
     questions.record(["What is your favourite colour?"], "Acme")                # nobody can answer this but them
+    before = list(profile.answers())
     resolved = questions.auto_resolve()
     settled = {r["question"] for r in resolved}
     assert "How did you hear about us?" in settled
     open_now = {q["text"] for q in questions.open_questions()}
-    assert "Are you authorized to work in the stated location?" in open_now, "authorisation differs per country"
-    assert "What is your favourite colour?" in open_now
+    assert "What is your favourite colour?" in open_now, "only they can answer this"
+
+    # authorisation is closed, but as 'answered per job' rather than by storing one answer for every country
+    from backend.app.models import Question
+    with session() as db:
+        row = db.query(Question).filter(Question.text.like("Are you authorized%")).one()
+        assert row.status == "answered" and row.stored_in == "per-job"
+    assert profile.answers() == before, "no single authorisation answer may be written to the answer bank"
 
 
 def test_a_bundle_answer_only_settles_what_it_addresses(monkeypatch):
