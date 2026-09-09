@@ -19,6 +19,7 @@ llm:
     classify: claude-cli
     factcheck: claude-cli
     profile_extract: claude-cli
+    form_agent: claude-cli
   models:
     gemini: gemini-3.5-flash-lite
     openrouter: anthropic/claude-sonnet-4.5
@@ -32,6 +33,7 @@ llm:
       tailor: claude-sonnet-5
       outreach: claude-sonnet-5
       profile_extract: claude-sonnet-5
+      form_agent: claude-sonnet-5      # deciding what to do on an unfamiliar form is reasoning, not classification
 # Rolling seven-day ceilings. LinkedIn allows roughly 100 invitations a week on a free or Premium account and counts
 # them from your first invitation of the week, so a daily cap alone is not enough to stay inside it.
 browser:

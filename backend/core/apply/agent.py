@@ -195,7 +195,7 @@ def finish_form(page, scope, *, job_text: str, cover: str | None, log, should_st
                    "note": ("These field names are what the form still reports as empty. If your last action did not "
                             "change them, try a different element or a different kind of action." if stuck else "")}
         try:
-            decision = llm.complete_json("classify", json.dumps(payload)[:14000], SYSTEM, use_cache=False)
+            decision = llm.complete_json("form_agent", json.dumps(payload)[:14000], SYSTEM, use_cache=False)
         except Exception as e:  # noqa: BLE001
             return {"done": False, "steps": steps, "blocked": f"could not reach the model: {type(e).__name__}"}
 
