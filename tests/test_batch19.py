@@ -1239,3 +1239,44 @@ def test_llm_fallback_closes_an_unfamiliar_popup_but_cannot_be_talked_into_buyin
     monkeypatch.setattr(llm, "complete_json", lambda *a, **k: {"index": None})
     assert not browser.dismiss_overlay(Page(Overlay(["Accept and continue"], "Terms")))
     assert clicked == []
+
+
+def test_sponsorship_beats_authorization_when_a_question_mentions_both():
+    """'Will you require company sponsorship to retain or extend your work authorization?' contains the phrase
+    'work authorization', and used to be answered by the authorization rule: exactly backwards."""
+    from backend.core.apply import forms
+    log = lambda *a, **k: None
+    both = "Will you now or in the future require company sponsorship to retain or extend your work authorization?"
+    forms.CTX.clear(); forms.CTX["country"] = "India"
+    assert forms.answer_question(both, "", None, log) == "No"          # at home he needs none
+    assert forms.answer_question("Are you legally authorized to work here?", "", None, log) == "Yes"
+    forms.CTX["country"] = "United States"
+    assert forms.answer_question(both, "", None, log) == "Yes"         # abroad he does
+    assert forms.answer_question("Are you legally authorized to work here?", "", None, log) == "No"
+    forms.CTX.clear()
+
+
+def test_a_group_of_options_is_one_question_not_twelve():
+    """Databricks' 'select all that apply' block reported each of its twelve options as a separate missing field,
+    and each option's text then looked like a question the employer had asked."""
+    from backend.core.apply import forms
+
+    class Checkbox:
+        def __init__(self, group): self.group = group
+        def is_visible(self): return True
+        def is_enabled(self): return True
+        def is_checked(self): return False
+        def get_attribute(self, name): return "checkbox" if name == "type" else None
+        def evaluate(self, js, *a): return self.group
+
+    boxes = [Checkbox("Please confirm whether any of the below applies to you.") for _ in range(12)]
+
+    class Root:
+        def locator(self, selector):
+            class L:
+                def all(inner): return boxes
+                def evaluate_all(inner, js, *a): return False
+            return L()
+
+    missing = forms.validate_required(None, Root())
+    assert missing == ["Please confirm whether any of the below applies to you."]

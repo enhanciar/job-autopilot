@@ -80,10 +80,13 @@ def _country_aware(label: str) -> str | None:
     # which would otherwise answer it "No" because the sentence also contains "authorized to work".
     if SPONSORSHIP_TYPE_RX.search(l):
         return sponsorship_type(c)
+    # Order matters. "Will you require company sponsorship to retain or extend your work authorization?" contains the
+    # phrase "work authorization", so the authorization rule used to claim it and answer exactly backwards: Yes for an
+    # Indian role, No for a US one. Anything about needing or requiring sponsorship is decided first.
+    if re.search(r"sponsor", l) and re.search(r"require|need|will you|do you now", l):
+        return "No" if in_india else "Yes"
     if re.search(r"authori[sz]ed to work|legally (able|eligible) to work|right to work|work authori[sz]ation|eligible to work", l):
         return "Yes" if in_india else "No"
-    if re.search(r"sponsorship|sponsor", l) and re.search(r"require|need|will you", l):
-        return "No" if in_india else "Yes"
     return None
 
 
@@ -267,18 +270,30 @@ def fill_text_inputs(page, job_text: str, cover_note: str | None, log, scope=Non
                         if not cand.count(): cand = page.locator(OPT).filter(visible=True)
                         if cand.count(): opt = cand.first; break
                     if opt is not None:
-                        # prefer the suggestion that starts with what we typed ("India +91" over "British Indian Ocean Territory")
+                        # prefer the suggestion that starts with what we typed ("India +91" over "British Indian Ocean Territory"),
+                        # then one that merely contains it, then let the model pick from the list that is actually on screen.
                         want = re.sub(r"[^a-z0-9]+", " ", ans.lower()).strip()
-                        best = None
-                        for k in range(min(cand.count(), 8)):
-                            t = re.sub(r"[^a-z0-9]+", " ", cand.nth(k).inner_text(timeout=500).lower()).strip()
-                            if t.startswith(want): best = cand.nth(k); break
-                            if best is None and re.search(r"india|mumbai", ans, re.I) and re.search(r"\bindia\b", t): best = cand.nth(k)
+                        shown = []
+                        for k in range(min(cand.count(), 10)):
+                            try: shown.append(re.sub(r"\s+", " ", cand.nth(k).inner_text(timeout=500)).strip())
+                            except Exception: shown.append("")
+                        norm = [re.sub(r"[^a-z0-9]+", " ", t.lower()).strip() for t in shown]
+                        best = next((cand.nth(k) for k, t in enumerate(norm) if t and t.startswith(want)), None)
+                        if best is None:
+                            best = next((cand.nth(k) for k, t in enumerate(norm) if t and (want in t or t in want)), None)
+                        if best is None and re.search(r"india|mumbai", ans, re.I):
+                            best = next((cand.nth(k) for k, t in enumerate(norm) if re.search(r"\bindia\b", t)), None)
+                        if best is None:
+                            chosen = choose_option(label, [t for t in shown if t], ans, log)
+                            if chosen: best = next((cand.nth(k) for k, t in enumerate(shown) if t == chosen), None)
                         opt = best
-                    if opt is not None: humanize.human_click(page, opt)
-                    else:
-                        # Ashby/Google-places style: first suggestion is selected with ArrowDown+Enter
-                        unanswered.append(f"Select a verified autocomplete option for {label}")
+                    if opt is not None:
+                        humanize.human_click(page, opt)
+                    elif cand.count():
+                        # suggestions are showing but none is right: take the first, the way a person would
+                        el.press("ArrowDown"); el.press("Enter"); page.wait_for_timeout(400)
+                        if not el.input_value(timeout=500): unanswered.append(label)
+                    # no suggestions at all means the field takes free text, and what we typed already stands
                     page.wait_for_timeout(500)
                 except Exception:
                     pass
@@ -821,22 +836,55 @@ def has_captcha(page) -> bool:
         return False
 
 
+def group_question(el) -> str | None:
+    """The question a checkbox or radio belongs to: its fieldset legend or the heading above the group.
+
+    Without this, a 'select all that apply' block reports twelve missing controls, one per option, and each option's
+    text ends up looking like a separate question the employer asked.
+    """
+    try:
+        return el.evaluate("""e => {
+            let n = e;
+            for (let i = 0; i < 8 && n; i++) {
+                n = n.parentElement;
+                if (!n) break;
+                const legend = n.querySelector('legend');
+                if (legend && legend.innerText.trim().length > 8) return legend.innerText.trim();
+                const heading = n.querySelector('h2, h3, h4, [class*="question"], [class*="label"]');
+                if (heading && !heading.contains(e)) {
+                    const t = (heading.innerText || '').trim();
+                    if (t.length > 12 && t.length < 300) return t;
+                }
+                if (n.querySelectorAll('input[type=checkbox], input[type=radio]').length > 1) {
+                    const own = (n.innerText || '').trim().split('\\n')[0];
+                    if (own && own.length > 12 && own.length < 300) return own;
+                }
+            }
+            return '';
+        }""") or None
+    except Exception:
+        return None
+
+
 def validate_required(page, scope=None) -> list[str]:
+    """Required controls still empty. A group of options counts once, under the question that owns it."""
     root = scope or page
     missing = []
     for el in root.locator("input[required], select[required], textarea[required], [aria-required='true']").all():
         try:
             if not el.is_visible() or not el.is_enabled(): continue
             kind = el.get_attribute('type') or ''
-            if kind in ('checkbox','radio'):
+            if kind in ('checkbox', 'radio'):
                 if kind == 'radio':
                     name = el.get_attribute('name')
-                    if name and root.locator("input[type='radio']").evaluate_all("(els, name) => els.some(e => e.name === name && e.checked)",name): continue
+                    if name and root.locator("input[type='radio']").evaluate_all("(els, name) => els.some(e => e.name === name && e.checked)", name): continue
                 elif el.is_checked(): continue
-                else: missing.append(_label_for(root,el)); continue
+                # report the question, not the option the person happens to be standing on
+                missing.append(group_question(el) or _label_for(root, el)); continue
             elif kind == 'file':
                 if el.evaluate('e => e.files && e.files.length'): continue
             elif el.input_value(timeout=500).strip(): continue
-            missing.append(_label_for(root,el) or 'Required field')
-        except Exception: missing.append('Required control could not be verified')
-    return list(dict.fromkeys(missing))
+            missing.append(_label_for(root, el) or 'Required field')
+        except Exception:
+            continue        # a control we cannot read is not a question to ask about
+    return list(dict.fromkeys(m for m in missing if m))

@@ -104,6 +104,16 @@ def backfill(db_path=None) -> int:
 PER_JOB = re.compile(r"authoriz|authoris|sponsor|right to work|visa|relocat.*(this|the specified|stated)|in-office|onsite requirement", re.I)
 
 
+def _country_answer(forms, text: str, country: str):
+    """What the country-aware rule would say for this wording in that country, if anything."""
+    previous = dict(forms.CTX)
+    try:
+        forms.CTX["country"] = country
+        return forms._country_aware(text)
+    finally:
+        forms.CTX.clear(); forms.CTX.update(previous)
+
+
 def auto_resolve(apply: bool = True) -> list[dict]:
     """Close the open questions the profile already answers, so only genuinely new ones reach the person.
 
@@ -113,8 +123,16 @@ def auto_resolve(apply: bool = True) -> list[dict]:
     resolved = []
     with session() as db:
         rows = db.query(Question).filter_by(status="open").all()
+        from backend.core.apply import forms
         for q in rows:
             if PER_JOB.search(q.text):
+                # These are settled per application rather than once: the filler asks the country-aware rule with the
+                # job's own country. If that rule handles the wording, the question needs nothing from the person.
+                handled = all(_country_answer(forms, q.text, c) for c in ("India", "United States"))
+                if handled and apply:
+                    q.status = "answered"; q.stored_in = "per-job"
+                    q.answer = "answered per application from the job's country"
+                    resolved.append({"id": q.id, "question": q.text, "answer": "handled automatically, per job country"})
                 continue
             answer = profile.answer_for(q.text)
             if not answer or answer.startswith("__"):
