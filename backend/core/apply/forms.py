@@ -693,12 +693,14 @@ def upload_resume(page, resume_path: str, log, scope=None) -> bool:
     respond to a click by opening the OS file chooser."""
     root = scope or page
     full = str(config.ROOT / resume_path)
+    # Newer Greenhouse forms have no file input at all until "Attach" is pressed, which opens the OS file chooser.
+    # Answering that chooser directly is the reliable path, so try it before hunting for a hidden input.
     files = root.locator("input[type='file']")
     try:
-        files.first.wait_for(state="attached", timeout=10000)
+        files.first.wait_for(state="attached", timeout=8000)
     except Exception:
         files = page.locator("input[type='file']")
-        try: files.first.wait_for(state="attached", timeout=5000)
+        try: files.first.wait_for(state="attached", timeout=4000)
         except Exception: return _upload_via_chooser(page, root, full, log)
     last = None
     for attempt in range(3):
@@ -728,12 +730,17 @@ def upload_resume(page, resume_path: str, log, scope=None) -> bool:
     return False
 
 
-DROPZONE = ("text=/click or drag/i", "text=/drag (and drop|your file)/i", "text=/upload your (resume|cv)/i",
-            "[class*='dropzone']", "[class*='drop-zone']", "[class*='upload']", "button:has-text('Upload')")
+DROPZONE = ("button:has-text('Attach')", "label:has-text('Attach')", "[data-source='attach']",
+            "text=/click or drag/i", "text=/drag (and drop|your file)/i", "text=/upload your (resume|cv)/i",
+            "[class*='dropzone']", "[class*='drop-zone']", "[class*='upload']", "button:has-text('Upload')",
+            "button:has-text('Choose file')", "button:has-text('Select file')")
 
 
 def _upload_via_chooser(page, root, full_path: str, log) -> bool:
-    """Drop zones that ignore a hidden input still open the file chooser when clicked; answer it directly."""
+    """Attach buttons and drop zones open the OS file chooser when clicked; answer it directly.
+
+    This is the only route on forms that create their file input after the click, so it is tried before giving up.
+    """
     for sel in DROPZONE:
         try:
             zone = root.locator(sel).filter(visible=True).first
@@ -741,6 +748,8 @@ def _upload_via_chooser(page, root, full_path: str, log) -> bool:
                 zone = page.locator(sel).filter(visible=True).first
             if not zone.count():
                 continue
+            try: zone.scroll_into_view_if_needed(timeout=2000)
+            except Exception: pass
             with page.expect_file_chooser(timeout=6000) as chooser:
                 zone.click()
             chooser.value.set_files(full_path)
