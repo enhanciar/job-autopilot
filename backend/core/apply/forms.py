@@ -489,29 +489,36 @@ def fill_custom_dropdowns(page, log, scope=None) -> list[str]:
     Personio 'Please select' buttons. Click, type the answer if there is an input, pick the best visible option."""
     root = scope or page
     unanswered = []
-    ctls = root.locator("[role='combobox']:not(input), .vs__dropdown-toggle, .select__control, button:has-text('Please select'), [class*='select__control'], [class*='dropdown-toggle']")
+    # react-select renders its search box as input[role=combobox], hidden until the control is clicked. The text filler
+    # skips it for being invisible and this pass used to exclude it outright, so Greenhouse's Country and Location were
+    # never filled by anything.
+    ctls = root.locator("[role='combobox'], .vs__dropdown-toggle, .select__control, button:has-text('Please select'), [class*='select__control'], [class*='dropdown-toggle']")
     for i in range(ctls.count()):
         c = ctls.nth(i)
         try:
-            if not c.is_visible(): continue
-            cur = c.inner_text(timeout=500).strip().lower()
+            is_input = c.evaluate("e => e.tagName") == "INPUT"
+            if not is_input and not c.is_visible(): continue
+            if is_input and c.input_value(timeout=500).strip(): continue      # already answered
+            cur = "" if is_input else c.inner_text(timeout=500).strip().lower()
             if cur and cur not in ("", "please select", "select...", "select", "-", "choose", "choose...") and "select" not in cur: continue
             label = _label_for(page, c)
-            if not label or re.search(r"search|sort|filter|language$|^(i am )?currently in\b|^(i can )?relocate to\b", label.strip(), re.I): continue   # Wellfound's own relocation picker is handled elsewhere
+            # Wellfound's relocation picker and the phone widget's country flyout are not questions.
+            if not label or re.search(r"search|sort|filter|language$|^(i am )?currently in\b|^(i can )?relocate to\b|"
+                                      r"^phone|phone country|country code|dial code", label.strip(), re.I): continue
             ans = answer_question(label, "", None, log)
             if ans == "__DATE_PLUS_30__": ans = "1 month"
             if not ans or ans == "__LLM__":
                 unanswered.append(label[:120]); continue
             humanize.human_click(page, c); page.wait_for_timeout(900)
-            inp = c.locator("input").first
+            inp = c if is_input else c.locator("input").first
             key = ans.split("/")[0].split("(")[0].strip()
             OPT0 = "[role='option'], .vs__dropdown-option, .select__option, [class*='select__option'], [class*='dropdown-menu'] li, ul[role='listbox'] li"
             n_open = root.locator(OPT0).filter(visible=True).count() or page.locator(OPT0).filter(visible=True).count()
-            if n_open == 0 and inp.count() and inp.is_visible():
+            if n_open == 0 and inp.count():
                 # menu did not open on click (react-select toggled shut): focus the input and open with ArrowDown
                 inp.focus(); page.keyboard.press("ArrowDown"); page.wait_for_timeout(700)
                 n_open = root.locator(OPT0).filter(visible=True).count() or page.locator(OPT0).filter(visible=True).count()
-            if inp.count() and inp.is_visible() and (n_open == 0 or n_open > 15):
+            if inp.count() and (n_open == 0 or n_open > 15):
                 # long lists (countries, schools) are searched by the first word; short yes/no lists are read as-is
                 inp.type(key.split(",")[0].split()[0][:30] if n_open > 15 or not n_open else key[:30], delay=40); page.wait_for_timeout(900)
             OPT = "[role='option'], .vs__dropdown-option, .select__option, [class*='select__option'], [class*='dropdown-menu'] li, ul[role='listbox'] li"
@@ -853,6 +860,31 @@ def has_captcha(page) -> bool:
         return False
 
 
+def combobox_has_selection(el) -> bool:
+    """True when a react-select style control already holds an answer.
+
+    Its search box is always empty — the chosen value is rendered as a separate element beside it — so reading the
+    input's value says 'blank' for a field that is plainly answered on screen, and the application gets pushed to a
+    human for questions it had already got right.
+    """
+    try:
+        return bool(el.evaluate("""e => {
+            if (e.getAttribute('role') !== 'combobox' && !e.getAttribute('aria-controls')) return false;
+            let n = e;
+            for (let i = 0; i < 5 && n; i++) {
+                n = n.parentElement;
+                if (!n) break;
+                const v = n.querySelector('[class*="singleValue"], [class*="single-value"], [class*="multiValue"], [class*="multi-value"]');
+                if (v && v.innerText && v.innerText.trim()) return true;
+                const hidden = n.querySelector('input[type=hidden]');
+                if (hidden && hidden.value && hidden.value.trim()) return true;
+            }
+            return false;
+        }"""))
+    except Exception:
+        return False
+
+
 def group_question(el) -> str | None:
     """The question a checkbox or radio belongs to: its fieldset legend or the heading above the group.
 
@@ -901,6 +933,7 @@ def validate_required(page, scope=None) -> list[str]:
             elif kind == 'file':
                 if el.evaluate('e => e.files && e.files.length'): continue
             elif el.input_value(timeout=500).strip(): continue
+            elif combobox_has_selection(el): continue
             missing.append(_label_for(root, el) or 'Required field')
         except Exception:
             continue        # a control we cannot read is not a question to ask about

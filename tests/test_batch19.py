@@ -1331,3 +1331,32 @@ def test_upload_verification_works_on_a_frame_not_just_a_page():
     assert forms._upload_landed(None, Input(0), Frame(True))
     # neither: a real failure
     assert not forms._upload_landed(None, Input(0), Frame(False))
+
+
+def test_a_filled_react_select_is_not_reported_as_empty():
+    """react-select keeps its search box empty and shows the choice in a separate element, so reading the input said
+    'blank' for a field that was plainly answered, and whole applications were pushed to a human over it."""
+    from backend.core.apply import forms
+
+    class Combo:
+        """A react-select input: empty value, but a rendered singleValue beside it."""
+        def __init__(self, chosen): self.chosen = chosen
+        def is_visible(self): return True
+        def is_enabled(self): return True
+        def get_attribute(self, name): return {"type": "text", "role": "combobox"}.get(name)
+        def input_value(self, timeout=None): return ""
+        def evaluate(self, js, *a): return bool(self.chosen)
+
+    class Root:
+        def __init__(self, els): self.els = els
+        def locator(self, selector):
+            els = self.els
+            class L:
+                def all(inner): return els
+                def evaluate_all(inner, js, *a): return False
+            return L()
+
+    assert forms.combobox_has_selection(Combo("India"))
+    assert not forms.combobox_has_selection(Combo(None))
+    assert forms.validate_required(None, Root([Combo("India")])) == []
+    assert forms.validate_required(None, Root([Combo(None)])) != []
