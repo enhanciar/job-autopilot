@@ -32,12 +32,14 @@ You are given the form as an accessibility tree. Every interactive element has a
 given the candidate's answer to each open question where one is known.
 
 Return JSON only, ONE action:
-{"action": "fill"|"select"|"click"|"press"|"done"|"blocked",
+{"action": "fill"|"select"|"click"|"press"|"upload"|"done"|"blocked",
  "ref": int|null, "value": str|null, "why": str}
 
 - "fill": type `value` into element `ref` (text boxes, comboboxes, search inputs).
 - "select": choose the option whose visible text is `value` from element `ref`.
 - "click": press element `ref` — use it to open a dropdown, tick a checkbox, or reveal a hidden field.
+- "upload": attach the candidate's resume to file input `ref`. Use it for any resume or CV field. If the form has an
+  "Attach" or "Upload file" button rather than a visible input, click that first: the input usually appears after.
 - "press": send the key in `value` (Enter, ArrowDown, Escape) to element `ref`.
 - "done": every required field is answered. Do NOT submit; the caller does that.
 - "blocked": you cannot proceed honestly — say why in `why`.
@@ -94,6 +96,18 @@ def _snapshot(scope) -> tuple[str, list]:
     return "\n".join(lines)[:SNAPSHOT_CHARS], handles
 
 
+def _resume_missing(scope) -> bool:
+    """True when the form has a file input and nothing is attached to it yet."""
+    try:
+        files = scope.locator("input[type='file']")
+        for i in range(min(files.count(), 4)):
+            if files.nth(i).evaluate("e => e.files && e.files.length > 0"):
+                return False
+        return files.count() > 0
+    except Exception:
+        return False
+
+
 def _known_answers(snapshot: str, job_text: str, cover: str | None, log) -> dict:
     """What the answer bank already knows for the questions on screen, so the model fills rather than invents."""
     answers = {}
@@ -110,7 +124,7 @@ def _known_answers(snapshot: str, job_text: str, cover: str | None, log) -> dict
     return answers
 
 
-def _act(page, handles, decision, log) -> bool:
+def _act(page, handles, decision, log, resume_path=None) -> bool:
     """Perform one decided action. Returns False when the action could not be carried out."""
     ref, value = decision.get("ref"), decision.get("value")
     if not isinstance(ref, int) or not 0 <= ref < len(handles):
@@ -140,6 +154,13 @@ def _act(page, handles, decision, log) -> bool:
             el.click(timeout=5000)
         elif action == "press":
             el.press(str(value or "Enter"), timeout=4000)
+        elif action == "upload":
+            if not resume_path:
+                log("warn", "agent asked to upload but no resume was prepared for this application")
+                return False
+            from backend.core import config
+            el.set_input_files(str(config.ROOT / resume_path), timeout=8000)
+            page.wait_for_timeout(2500)
         else:
             return False
         page.wait_for_timeout(700)
@@ -155,7 +176,7 @@ def humanize_type(page, el, text: str):
 
 
 def finish_form(page, scope, *, job_text: str, cover: str | None, log, should_stop=lambda: False,
-                max_steps: int = MAX_STEPS) -> dict:
+                resume_path: str | None = None, max_steps: int = MAX_STEPS) -> dict:
     """Take over a partly filled form and answer what is left.
 
     Returns {"done": bool, "steps": int, "blocked": str|None}. Never presses submit: the caller owns that, because the
@@ -177,6 +198,8 @@ def finish_form(page, scope, *, job_text: str, cover: str | None, log, should_st
         # The validator, not the DOM's `required` attribute, decides whether the form is finished. react-select's search
         # box carries no required flag, so a snapshot-based view thought the form was complete with six fields empty.
         remaining = forms.validate_required(page, scope)
+        if resume_path and _resume_missing(scope):
+            remaining = remaining + ["Resume (not attached yet)"]
         if not remaining:
             return {"done": True, "steps": steps, "blocked": None}
         if remaining == last_remaining:
@@ -212,7 +235,7 @@ def finish_form(page, scope, *, job_text: str, cover: str | None, log, should_st
             return {"done": False, "steps": steps, "blocked": why[:200] or "the agent could not proceed"}
 
         log("info", f"agent step {steps + 1}: {action} — {why[:70]}")
-        if not _act(page, handles, decision, log):
+        if not _act(page, handles, decision, log, resume_path):
             steps += 1
             continue
         steps += 1

@@ -157,72 +157,61 @@ class ATSApplySkill(BaseSkill):
         self.guard(page)
         self._dismiss_cookie_banner(page)
         root = self._form_root(page)                 # embedded Greenhouse/Lever/Ashby iframe, else the page itself
-        self.log("info", f"[{company}] found the application form; filling it in")
-        try:   # SPA forms (Ashby, Lever) render after load: wait for a real field or the file input before filling
-            root.locator("input[type='file'], input[type='email'], input[name*='email' i], textarea, input[type='text']").first.wait_for(state="visible", timeout=20000)
-        except Exception:
-            pass
-        try: page.wait_for_load_state("networkidle", timeout=8000)
-        except Exception: pass
-        closed = forms.job_closed(page)
-        if closed:
-            with session() as db:
-                a = db.get(Application, aid)
-                a.status = "needs_human"; a.error = f"the employer has closed this posting ('{closed}')"
-                a.job.status = "expired"
-            self.log("info", f"[{company}] posting is closed; skipping")
-            self.ctx.bump("closed"); return
-        wall = forms.payment_wall(page)
-        if wall:
-            self._fail(aid, f"stopped: this 'apply' leads to a paid subscription page ('{wall}'). Nothing was filled in "
-                            f"and no payment was made. Apply on the employer's own site instead.", page, "needs_human")
-            self.log("warn", f"payment page on {company}; the board routes Apply through a paid plan")
-            return
-        if page.locator("input[type='password']").filter(visible=True).count() and re.search(r"sign in|log in|login", page.inner_text("body", timeout=3000)[:3000], re.I):
-            self._fail(aid, f"site requires an account login ({page.url.split('/')[2]}); log in once in the automation window then re-approve", page, "needs_human"); return
-        # basic identity fields first (handles Greenhouse/Lever/Ashby/Workable naming)
-        if "greenhouse" in page.url or page.locator("iframe[src*='greenhouse']").count():
-            forms.greenhouse_specifics(page, cover, self.log, scope=root)
-        unanswered = forms.fill_work_history(page, self.log, scope=root)
-        unanswered += forms.fill_text_inputs(page, job_text, cover, self.log, scope=root)
-        unanswered += forms.fill_selects(page, self.log, scope=root)
-        self.log("info", f"[{company}] attaching the resume")
-        uploaded = forms.upload_resume(page, resume_path, self.log, scope=root) if resume_path else False
-        self._fill_custom_radios(page, scope=root)
-        unanswered += forms.fill_button_choices(page, self.log, scope=root)
-        unanswered += forms.fill_checkbox_groups(page, self.log, scope=root)
-        unanswered += forms.fill_custom_dropdowns(page, self.log, scope=root)
-        self.log("info", f"[{company}] answering the dropdowns and screening questions")
-        forms.refill_phone(page, self.log, scope=root)
-        forms.fill_text_inputs(page, job_text, cover, self.log, scope=root, simple_only=True)   # re-fill fields a re-render cleared
-        forms.tick_certifications(page, self.log, scope=root)
-        humanize.human_scroll(page, 600)
-        shot_before = self.ctx.screenshot(page, f"app{aid}_before")
-        with session() as db:
-            db.get(Application, aid).screenshot_before = shot_before
-        unanswered += forms.validate_required(page, root)
-        if unanswered:
-            # The script has run out of rules. Hand the same page to the agent, which reads the form and decides what
-            # to do next; it works from the same answer bank and cannot submit, so the verification below still applies.
+        self.log("info", f"[{company}] found the application form")
+        mode = (config.load().get("apply") or {}).get("mode", "agent")
+        uploaded = True
+        if mode == "agent":
+            # Claude drives the whole form. The script's answer bank, country rules and fact-check are still what supply
+            # the values; the model decides which control to put them in, which is the part no rule ever got right.
             from backend.core.apply import agent
-            self.log("info", f"[{company}] script stopped on {len(unanswered)} field(s); the agent is taking over")
+            self.log("info", f"[{company}] Claude is filling the form")
             outcome = agent.finish_form(page, root, job_text=job_text, cover=cover, log=self.log,
-                                        should_stop=self.ctx.should_stop)
-            if outcome["done"]:
-                self.log("info", f"[{company}] agent finished the form in {outcome['steps']} step(s)")
-                self.ctx.bump("agent_finished")
-                unanswered = forms.validate_required(page, root)
-            else:
+                                        should_stop=self.ctx.should_stop, resume_path=resume_path)
+            shot_before = self.ctx.screenshot(page, f"app{aid}_before")
+            with session() as db:
+                db.get(Application, aid).screenshot_before = shot_before
+            if not outcome["done"]:
                 from backend.core import questions
-                questions.record(unanswered, company, job_id)   # answer it once, in the Questions page
+                open_now = forms.validate_required(page, root)
+                if open_now:
+                    questions.record(open_now, company, job_id)
                 self.ctx.bump("agent_blocked")
-                self._fail(aid, f"agent stopped: {outcome['blocked']}. Open fields: " + " | ".join(unanswered[:5]),
-                           page, "needs_human")
-                return
-        if unanswered:
-            from backend.core import questions
-            questions.record(unanswered, company, job_id)
-            self._fail(aid, "Unanswered fields: " + " | ".join(unanswered[:8]), page, "needs_human"); return
+                self._fail(aid, f"Claude stopped: {outcome['blocked']}", page, "needs_human"); return
+            self.log("info", f"[{company}] form complete after {outcome['steps']} step(s)")
+            self.ctx.bump("agent_finished")
+        else:
+            unanswered = forms.fill_work_history(page, self.log, scope=root)
+            unanswered += forms.fill_text_inputs(page, job_text, cover, self.log, scope=root)
+            unanswered += forms.fill_selects(page, self.log, scope=root)
+            self.log("info", f"[{company}] attaching the resume")
+            uploaded = forms.upload_resume(page, resume_path, self.log, scope=root) if resume_path else False
+            self._fill_custom_radios(page, scope=root)
+            unanswered += forms.fill_button_choices(page, self.log, scope=root)
+            unanswered += forms.fill_checkbox_groups(page, self.log, scope=root)
+            unanswered += forms.fill_custom_dropdowns(page, self.log, scope=root)
+            self.log("info", f"[{company}] answering the dropdowns and screening questions")
+            forms.refill_phone(page, self.log, scope=root)
+            forms.fill_text_inputs(page, job_text, cover, self.log, scope=root, simple_only=True)
+            forms.tick_certifications(page, self.log, scope=root)
+            humanize.human_scroll(page, 600)
+            shot_before = self.ctx.screenshot(page, f"app{aid}_before")
+            with session() as db:
+                db.get(Application, aid).screenshot_before = shot_before
+            unanswered += forms.validate_required(page, root)
+            if unanswered:
+                from backend.core.apply import agent
+                self.log("info", f"[{company}] script stopped on {len(unanswered)} field(s); Claude is taking over")
+                outcome = agent.finish_form(page, root, job_text=job_text, cover=cover, log=self.log,
+                                            should_stop=self.ctx.should_stop, resume_path=resume_path)
+                if not outcome["done"]:
+                    from backend.core import questions
+                    questions.record(unanswered, company, job_id)
+                    self.ctx.bump("agent_blocked")
+                    self._fail(aid, f"Claude stopped: {outcome['blocked']}. Open fields: " + " | ".join(unanswered[:5]),
+                               page, "needs_human")
+                    return
+                self.ctx.bump("agent_finished")
+                uploaded = True
         if not uploaded and root.locator("input[type='file']").count():
             self._fail(aid, "resume upload field present but upload failed", page, "needs_human"); return
         if dry_run:

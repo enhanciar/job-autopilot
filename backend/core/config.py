@@ -74,6 +74,8 @@ def validate(cfg: dict) -> dict:
     if not isinstance(hours, dict): raise ValueError("business_hours must be an object")
     for key in ("start", "end"):
         if key in hours and (type(hours[key]) is not int or not 0 <= hours[key] <= 23): raise ValueError(f"business_hours.{key} must be an hour 0–23")
+    mode = (cfg.get("apply") or {}).get("mode", "agent")
+    if mode not in ("agent", "script"): raise ValueError("apply.mode must be 'agent' or 'script'")
     per_company = (cfg.get("outreach") or {}).get("people_per_company", 10)
     if type(per_company) is not int or not 1 <= per_company <= 25: raise ValueError("outreach.people_per_company must be 1–25")
     sources = cfg.get("outreach_only_sources", [])

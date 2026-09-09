@@ -167,3 +167,66 @@ def test_the_validator_decides_completion_not_the_model(monkeypatch):
     out = agent.finish_form(Page(), Scope([empty]), job_text="", cover=None, log=log)
     assert out["done"], out
     assert said_done["n"] == 2, "a premature 'done' is rejected and the agent carries on"
+
+
+def test_agent_uploads_the_resume_and_will_not_finish_without_it(monkeypatch, tmp_path):
+    """Applying is Claude's job end to end now, so attaching the resume is one of its actions — and a form with an
+    empty file input is not finished, however complete the model believes it to be."""
+    monkeypatch.setattr(agent.forms, "_label_for", lambda scope, el: el.label)
+    monkeypatch.setattr(agent.forms, "answer_question", lambda *a, **k: None)
+    monkeypatch.setattr(agent.forms, "payment_wall", lambda page: None)
+    monkeypatch.setattr(agent.forms, "has_captcha", lambda page: False)
+    monkeypatch.setattr(agent.forms, "validate_required", lambda p, s: [])
+    monkeypatch.setattr(agent.profile, "as_text", lambda: "profile")
+
+    attached = {"n": 0}
+
+    class FileInput(Element):
+        def evaluate(self, js, *a):
+            if "files" in js and "length" in js:
+                return attached["n"] > 0
+            return super().evaluate(js, *a)
+        def set_input_files(self, path, timeout=None):
+            attached["n"] += 1
+            self.actions.append(("upload", path))
+
+    resume = FileInput("Resume", kind="file")
+
+    class UploadScope(Scope):
+        def locator(self, selector):
+            els = [resume] if "file" in selector else self.elements
+            class L:
+                def count(inner): return len(els)
+                def nth(inner, i): return els[i]
+            return L()
+
+    scope = UploadScope([resume])
+    monkeypatch.setattr(agent.llm, "complete_json", lambda *a, **k: {"action": "upload", "ref": 0, "why": "attach the CV"})
+    out = agent.finish_form(Page(), scope, job_text="", cover=None, log=log, resume_path="data/artifacts/cv.pdf")
+    assert out["done"], out
+    assert attached["n"] == 1 and resume.actions[0][0] == "upload"
+
+
+def test_a_form_still_missing_its_resume_is_not_done(monkeypatch):
+    monkeypatch.setattr(agent.forms, "_label_for", lambda scope, el: el.label)
+    monkeypatch.setattr(agent.forms, "answer_question", lambda *a, **k: None)
+    monkeypatch.setattr(agent.forms, "payment_wall", lambda page: None)
+    monkeypatch.setattr(agent.forms, "has_captcha", lambda page: False)
+    monkeypatch.setattr(agent.forms, "validate_required", lambda p, s: [])
+    monkeypatch.setattr(agent.profile, "as_text", lambda: "profile")
+
+    empty = Element("Resume", kind="file")
+    empty.evaluate = lambda js, *a: False          # nothing attached, ever
+
+    class UploadScope(Scope):
+        def locator(self, selector):
+            els = [empty] if "file" in selector else self.elements
+            class L:
+                def count(inner): return len(els)
+                def nth(inner, i): return els[i]
+            return L()
+
+    monkeypatch.setattr(agent.llm, "complete_json", lambda *a, **k: {"action": "done", "why": "I think it is fine"})
+    out = agent.finish_form(Page(), UploadScope([empty]), job_text="", cover=None, log=log,
+                            resume_path="data/artifacts/cv.pdf", max_steps=3)
+    assert not out["done"], "an application with no resume attached must never count as complete"

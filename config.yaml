@@ -2,6 +2,8 @@ target_per_day: 100
 resume:
   max_pages: 2          # projects are always kept; content is only trimmed past this limit
 review_mode: true
+apply:
+  mode: agent      # agent = Claude fills every form (Sonnet); script = rule-based filler with Claude as fallback
 outreach:
   people_per_company: 10      # how many people to approach per company: one message each, spread across roles
 # Boards whose own "Apply" is a paywall or a dead end. Jobs from these are still discovered, scored and prepared, but the
