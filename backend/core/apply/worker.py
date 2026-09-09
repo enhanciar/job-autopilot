@@ -13,7 +13,12 @@ from backend.core.pipeline import _job_text
 
 SUBMIT_SELECTORS = ["button[type='submit']:visible", "input[type='submit']:visible", "a.btn__submit", "a:has-text('Submit Application')", "button:has-text('Submit application')",
                     "button:has-text('Submit Application')", "button:has-text('Submit')", "button:has-text('Apply')"]
-CONFIRM_TEXTS = ["application received", "we've received your application", "successfully submitted", "application submitted", "thanks for applying", "thank you for applying"]
+CONFIRM_TEXTS = ["application received", "we've received your application", "successfully submitted", "application submitted",
+                 "thanks for applying", "thank you for applying",
+                 # Boards that mark the listing itself rather than showing a thank-you page
+                 "applied today", "apply again", "you have already applied", "already applied to this"]
+# A board asking whether we applied is the opposite of proof: it means it handed us off and does not know either.
+NOT_CONFIRMATION = ["did you apply", "let us know so we can help you track", "yes, i applied", "no, i didn't apply"]
 
 
 import contextlib
@@ -245,7 +250,12 @@ class ATSApplySkill(BaseSkill):
         time.sleep(4); humanize.pause()
         body = page.inner_text("body", timeout=5000).lower()
         shot_after = self.ctx.screenshot(page, f"app{aid}_after")
-        ok = any(t in body for t in CONFIRM_TEXTS)
+        ok = any(t in body for t in CONFIRM_TEXTS) and not any(t in body for t in NOT_CONFIRMATION)
+        if any(t in body for t in NOT_CONFIRMATION):
+            self._fail(aid, "this board hands the application off to the employer's own site and then asks whether you "
+                            "applied; nothing was submitted here. Apply on the employer's site instead.",
+                       page, "needs_human")
+            self.ctx.bump("handed_off"); return
         if not ok:
             try:
                 form_gone = root.locator("input[type='file']").count() == 0 and not btn.is_visible()
