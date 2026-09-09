@@ -160,10 +160,9 @@ def test_the_validator_decides_completion_not_the_model(monkeypatch):
         said_done["n"] += 1
         if said_done["n"] == 1:
             return {"action": "done", "why": "looks complete to me"}
-        empty.value = "India"                       # the second reply actually fills it
         return {"action": "fill", "ref": 0, "value": "India", "why": "profile"}
     monkeypatch.setattr(agent.llm, "complete_json", reply)
-    monkeypatch.setattr(agent, "humanize_type", lambda page, el, text: None)
+    monkeypatch.setattr(agent, "humanize_type", lambda page, el, text: el.type(text))
 
     out = agent.finish_form(Page(), Scope([empty]), job_text="", cover=None, log=log)
     assert out["done"], out
