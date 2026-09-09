@@ -254,6 +254,12 @@ class ATSApplySkill(BaseSkill):
             url_ok = any(k in page.url.lower() for k in ("thank", "confirmation", "success", "submitted", "applied"))
             # a form that merely vanished (blank iframe, SPA re-render) is not proof of submission: require a confirming URL
             ok = form_gone and url_ok
+        if not ok:
+            capped = forms.application_limit(page)
+            if capped:
+                self._fail(aid, f"the employer caps applications per candidate and refused this one ({capped}). "
+                                f"The form was complete; try again after their window resets.", page, "needs_human")
+                self.ctx.bump("employer_cap"); return
         errs = [] if ok else forms.form_errors(page)
         if not ok and re.search(r"verification code was sent|enter the .{0,12}code to confirm|security code", body):
             with session() as db:

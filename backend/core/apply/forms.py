@@ -829,6 +829,22 @@ CLOSED_RX = re.compile(r"this job has closed|no longer accepting applications|th
                        r"we are no longer accepting", re.I)
 
 
+APPLICATION_LIMIT_RX = re.compile(r"may not apply more than \d+ times|application limits?\b[^.]{0,80}\d+ times|"
+                                  r"reached the (maximum|limit) (number )?of applications|"
+                                  r"you have already applied to the maximum", re.I)
+
+
+def application_limit(page) -> str | None:
+    """Some employers cap how many roles one candidate may apply to in a window. Hitting it is not a bug in the form,
+    and retrying before the window resets will be refused again, so it is recorded rather than retried."""
+    try:
+        body = page.inner_text("body", timeout=2500)
+    except Exception:
+        return None
+    hit = APPLICATION_LIMIT_RX.search(body)
+    return hit.group(0)[:80] if hit else None
+
+
 def job_closed(page) -> str | None:
     """The employer has taken the posting down. Filling in a form nobody reads wastes a slot and looks like noise."""
     try:
